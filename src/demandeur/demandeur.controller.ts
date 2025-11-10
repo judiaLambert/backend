@@ -3,7 +3,7 @@ import { DemandeurService } from './demandeur.service';
 
 @Controller('demandeur')
 export class DemandeurController {
-  constructor(private service: DemandeurService) {}
+  constructor(private readonly service: DemandeurService) {}
 
   @Post()
   create(
@@ -22,9 +22,9 @@ export class DemandeurController {
     return this.service.findAll();
   }
 
-  @Get(':id_demandeur')
-  findOne(@Param('id_demandeur') id_demandeur: string) {
-    return this.service.findOne(id_demandeur);
+  @Get('by-user/:userId')
+  async findByUserId(@Param('userId') userId: string) {
+    return await this.service.findByUserId(userId);
   }
 
   @Get('email/:email')
@@ -33,8 +33,13 @@ export class DemandeurController {
   }
 
   @Get('utilisateur/:id_utilisateur')
-  findByUtilisateur(@Param('id_utilisateur') id_utilisateur: number) {
-    return this.service.findByUtilisateur(id_utilisateur);
+  findByUtilisateur(@Param('id_utilisateur') id_utilisateur: string) {
+    return this.service.findByUtilisateur(parseInt(id_utilisateur, 10));
+  }
+
+  @Get(':id_demandeur')
+  findOne(@Param('id_demandeur') id_demandeur: string) {
+    return this.service.findOne(id_demandeur);
   }
 
   @Put(':id_demandeur')

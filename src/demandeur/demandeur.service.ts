@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Demandeur } from './demandeur.entity';
@@ -36,10 +36,16 @@ export class DemandeurService {
   }
 
   async findOne(id_demandeur: string) {
-    return await this.demandeurRepository.findOne({
+    const demandeur = await this.demandeurRepository.findOne({
       where: { id_demandeur: id_demandeur },
       relations: ['departement', 'utilisateur'],
     });
+    
+    if (!demandeur) {
+      throw new NotFoundException(`Demandeur avec l'ID ${id_demandeur} non trouvé`);
+    }
+    
+    return demandeur;
   }
 
   async update(
@@ -63,22 +69,57 @@ export class DemandeurService {
   }
 
   async remove(id_demandeur: string) {
+    const demandeur = await this.findOne(id_demandeur);
     return await this.demandeurRepository.delete(id_demandeur);
   }
 
   // Trouver par email
   async findByEmail(email: string) {
-    return await this.demandeurRepository.findOne({
+    const demandeur = await this.demandeurRepository.findOne({
       where: { email },
       relations: ['departement', 'utilisateur'],
     });
+    
+    if (!demandeur) {
+      throw new NotFoundException(`Demandeur avec l'email ${email} non trouvé`);
+    }
+    
+    return demandeur;
   }
 
   // Trouver par id_utilisateur
   async findByUtilisateur(id_utilisateur: number) {
-    return await this.demandeurRepository.findOne({
+    const demandeur = await this.demandeurRepository.findOne({
       where: { utilisateur: { id_utilisateur } },
       relations: ['departement', 'utilisateur'],
     });
+    
+    if (!demandeur) {
+      throw new NotFoundException(`Demandeur pour l'utilisateur ${id_utilisateur} non trouvé`);
+    }
+    
+    return demandeur;
+  }
+
+  // Trouver par userId (string converti en number)
+  async findByUserId(userId: string) {
+    const userIdNumber = parseInt(userId, 10);
+    
+    if (isNaN(userIdNumber)) {
+      throw new NotFoundException(`ID utilisateur invalide: ${userId}`);
+    }
+
+    const demandeur = await this.demandeurRepository
+      .createQueryBuilder('demandeur')
+      .leftJoinAndSelect('demandeur.utilisateur', 'utilisateur')
+      .leftJoinAndSelect('demandeur.departement', 'departement')
+      .where('utilisateur.id_utilisateur = :userId', { userId: userIdNumber })
+      .getOne();
+    
+    if (!demandeur) {
+      throw new NotFoundException(`Demandeur non trouvé pour l'utilisateur ${userId}`);
+    }
+    
+    return demandeur;
   }
 }
