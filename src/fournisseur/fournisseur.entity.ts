@@ -15,6 +15,15 @@ export class Fournisseur {
   @Column({ name: 'adresse_fournisseur', type: 'text' })
   adresse: string;
 
+  @Column({ name: 'nif', nullable: true })
+  nif: string;
+
+  @Column({ name: 'stat', nullable: true })
+  stat: string;
+
+  @Column({ name: 'email', nullable: true })
+  email: string;
+
   @ManyToOne(() => TypeMateriel)
   @JoinColumn({ name: 'id_typemateriel' })
   typeMateriel: TypeMateriel;

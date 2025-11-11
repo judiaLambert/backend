@@ -20,6 +20,38 @@ export class DemandeMaterielService {
     private dataSource: DataSource
   ) {}
 
+  // Génération ID au format DEM01, DEM02, etc.
+  private async generateDemandeId(): Promise<string> {
+    const lastDemande = await this.demandeRepository
+      .createQueryBuilder('demande')
+      .orderBy('demande.id', 'DESC')
+      .getOne();
+
+    if (!lastDemande) {
+      return 'DEM01';
+    }
+
+    const lastNumber = parseInt(lastDemande.id.substring(3));
+    const nextNumber = lastNumber + 1;
+    return `DEM${nextNumber.toString().padStart(2, '0')}`;
+  }
+
+  // Génération ID détail au format DET01, DET02, etc.
+  private async generateDetailId(): Promise<string> {
+    const lastDetail = await this.detailRepository
+      .createQueryBuilder('detail')
+      .orderBy('detail.id', 'DESC')
+      .getOne();
+
+    if (!lastDetail) {
+      return 'DET01';
+    }
+
+    const lastNumber = parseInt(lastDetail.id.substring(3));
+    const nextNumber = lastNumber + 1;
+    return `DET${nextNumber.toString().padStart(2, '0')}`;
+  }
+
   // Créer une demande avec ses détails (transaction)
   async create(
     id_demandeur: string,
@@ -36,9 +68,8 @@ export class DemandeMaterielService {
         throw new NotFoundException(`Demandeur ${id_demandeur} non trouvé`);
       }
 
-      // 2. Générer un ID unique pour la demande
-      const timestamp = Date.now();
-      const id_demande = `DEM-${timestamp}`;
+      // 2. Générer l'ID de la demande
+      const id_demande = await this.generateDemandeId();
 
       // 3. Créer la demande principale
       const demande = manager.create(DemandeMateriel, {
@@ -51,14 +82,11 @@ export class DemandeMaterielService {
 
       // 4. Sauvegarder la demande
       const savedDemande = await manager.save(DemandeMateriel, demande);
-      console.log('Demande sauvegardée:', savedDemande.id);
 
       // 5. Créer et sauvegarder les détails
       const detailDemandes: DetailDemande[] = [];
       
-      for (let i = 0; i < details.length; i++) {
-        const detail = details[i];
-        
+      for (const detail of details) {
         // Vérifier que le matériel existe
         const materiel = await manager.findOne(Materiel, {
           where: { id: detail.id_materiel }
@@ -69,19 +97,18 @@ export class DemandeMaterielService {
         }
 
         // Générer un ID unique pour le détail
-        const id_detail = `DET-${timestamp}-${i}`;
+        const id_detail = await this.generateDetailId();
 
         // Créer le détail
         const detailDemande = manager.create(DetailDemande, {
           id: id_detail,
-          demandeMateriel: { id: savedDemande.id },
+          demandeMateriel: savedDemande,
           materiel: { id: detail.id_materiel },
           quantite_demander: detail.quantite_demander
         });
 
         // Sauvegarder le détail
         const savedDetail = await manager.save(DetailDemande, detailDemande);
-        console.log('Détail sauvegardé:', savedDetail.id);
         detailDemandes.push(savedDetail);
       }
 
@@ -130,7 +157,7 @@ export class DemandeMaterielService {
     });
   }
 
-  // Mettre à jour une demande
+  // Mettre à jour une demande (raison)
   async update(id: string, raison_demande: string): Promise<DemandeMateriel> {
     const demande = await this.findOne(id);
     demande.raison_demande = raison_demande;
@@ -138,11 +165,20 @@ export class DemandeMaterielService {
   }
 
   // Mettre à jour le statut d'une demande (approuver/refuser)
-  async updateStatut(id: string, statut: string, motif_refus?: string): Promise<DemandeMateriel> {
+  async updateStatut(
+    id: string, 
+    statut: 'approuvee' | 'refusee', 
+    motif_refus?: string
+  ): Promise<DemandeMateriel> {
     const demande = await this.findOne(id);
     
+    if (statut !== 'approuvee' && statut !== 'refusee') {
+      throw new HttpException('Statut invalide', HttpStatus.BAD_REQUEST);
+    }
+
     demande.statut = statut;
-    if (motif_refus) {
+    
+    if (statut === 'refusee' && motif_refus) {
       demande.motif_refus = motif_refus;
     }
 
@@ -153,5 +189,64 @@ export class DemandeMaterielService {
   async remove(id: string): Promise<void> {
     const demande = await this.findOne(id);
     await this.demandeRepository.remove(demande);
+  }
+
+  // ========== GESTION DES DÉTAILS ==========
+
+  // Ajouter un matériel à une demande existante
+  async addDetail(
+    id_demande: string, 
+    id_materiel: string, 
+    quantite_demander: number
+  ) {
+    const demande = await this.findOne(id_demande);
+    
+    const materiel = await this.materielRepository.findOne({
+      where: { id: id_materiel }
+    });
+
+    if (!materiel) {
+      throw new NotFoundException(`Matériel ${id_materiel} non trouvé`);
+    }
+
+    const id_detail = await this.generateDetailId();
+
+    const detail = this.detailRepository.create({
+      id: id_detail,
+      demandeMateriel: demande,
+      materiel: { id: id_materiel },
+      quantite_demander
+    });
+
+    return await this.detailRepository.save(detail);
+  }
+
+  // Modifier la quantité d'un détail
+  async updateDetail(id_detail: string, quantite_demander: number) {
+    const detail = await this.detailRepository.findOne({
+      where: { id: id_detail },
+      relations: ['materiel', 'demandeMateriel']
+    });
+
+    if (!detail) {
+      throw new NotFoundException(`Détail ${id_detail} non trouvé`);
+    }
+
+    detail.quantite_demander = quantite_demander;
+    return await this.detailRepository.save(detail);
+  }
+
+  // Supprimer un détail
+  async removeDetail(id_detail: string) {
+    const detail = await this.detailRepository.findOne({
+      where: { id: id_detail }
+    });
+
+    if (!detail) {
+      throw new NotFoundException(`Détail ${id_detail} non trouvé`);
+    }
+
+    await this.detailRepository.remove(detail);
+    return { success: true, message: 'Détail supprimé avec succès' };
   }
 }

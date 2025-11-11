@@ -10,65 +10,65 @@ export class FournisseurService {
     private fournisseurRepository: Repository<Fournisseur>,
   ) {}
 
-  async create(nom: string, contact: string, adresse: string, idTypeMateriel: string, dateLivraison: Date) {
-    // Vérifier si le fournisseur existe déjà
-    const existingFournisseur = await this.fournisseurRepository.findOne({
-      where: { nom, contact }
+  async create(
+    nom: string, 
+    contact: string, 
+    adresse: string, 
+    nif: string,
+    stat: string,
+    email: string
+  ) {
+    const fournisseur = this.fournisseurRepository.create({
+      nom,
+      contact,
+      adresse,
+      nif: nif?.trim() || undefined,      // ✅ undefined au lieu de null
+      stat: stat?.trim() || undefined,    // ✅ undefined au lieu de null
+      email: email?.trim() || undefined   // ✅ undefined au lieu de null
     });
-
-    if (existingFournisseur) {
-      // Ajouter seulement le nouveau type de matériel avec date
-      const nouveauFournisseur = this.fournisseurRepository.create({
-        nom,
-        contact,
-        adresse,
-        typeMateriel: { id: idTypeMateriel } as any,
-        dateLivraison,
-      });
-      return await this.fournisseurRepository.save(nouveauFournisseur);
-    } else {
-      // Nouveau fournisseur
-      const fournisseur = this.fournisseurRepository.create({
-        nom,
-        contact,
-        adresse,
-        typeMateriel: { id: idTypeMateriel } as any,
-        dateLivraison,
-      });
-      return await this.fournisseurRepository.save(fournisseur);
-    }
+    return await this.fournisseurRepository.save(fournisseur);
   }
 
   async findAll() {
     return await this.fournisseurRepository.find({
-      relations: ['typeMateriel'],
-      order: { nom: 'ASC', dateLivraison: 'DESC' }
+      order: { nom: 'ASC' }
     });
   }
 
   async findOne(id: string) {
     return await this.fournisseurRepository.findOne({
-      where: { id },
-      relations: ['typeMateriel'],
+      where: { id }
     });
   }
 
-  async findByNom(nom: string) {
-    return await this.fournisseurRepository.find({
-      where: { nom },
-      relations: ['typeMateriel'],
-      order: { dateLivraison: 'DESC' }
-    });
-  }
-
-  async update(id: string, nom: string, contact: string, adresse: string, idTypeMateriel: string, dateLivraison: Date) {
-    await this.fournisseurRepository.update(id, {
+  async update(
+    id: string, 
+    nom: string, 
+    contact: string, 
+    adresse: string,
+    nif: string,
+    stat: string,
+    email: string
+  ) {
+    // ✅ Construction d'un objet de mise à jour dynamique
+    const updateData: any = {
       nom,
       contact,
-      adresse,
-      typeMateriel: { id: idTypeMateriel } as any,
-      dateLivraison,
-    });
+      adresse
+    };
+
+    // ✅ Ajouter uniquement si non vide
+    if (nif?.trim()) {
+      updateData.nif = nif.trim();
+    }
+    if (stat?.trim()) {
+      updateData.stat = stat.trim();
+    }
+    if (email?.trim()) {
+      updateData.email = email.trim();
+    }
+
+    await this.fournisseurRepository.update(id, updateData);
     return this.findOne(id);
   }
 
@@ -78,6 +78,7 @@ export class FournisseurService {
 
   async getFournisseursGroupes() {
     const fournisseurs = await this.findAll();
+    
     const grouped = {};
     
     fournisseurs.forEach(f => {
@@ -87,13 +88,11 @@ export class FournisseurService {
           nom: f.nom,
           contact: f.contact,
           adresse: f.adresse,
-          typesMateriel: []
+          nif: f.nif,
+          stat: f.stat,
+          email: f.email
         };
       }
-      grouped[f.nom].typesMateriel.push({
-        type: f.typeMateriel?.designation,
-        date: f.dateLivraison
-      });
     });
     
     return Object.values(grouped);

@@ -1,108 +1,62 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param } from '@nestjs/common';
 import { DemandeMaterielService } from './demande.service';
-import { DemandeMateriel } from './demande.entity';
 
-@Controller('demande-materiel')
+@Controller('demandes')
 export class DemandeMaterielController {
-  constructor(
-    private readonly demandeMaterielService: DemandeMaterielService,
-  ) {}
+  constructor(private readonly demandeService: DemandeMaterielService) {}
 
-  @Get()
-  async getAll(): Promise<DemandeMateriel[]> {
-    return await this.demandeMaterielService.findAll();
+  @Post()
+  create(@Body() body: any) {
+    return this.demandeService.create(
+      body.id_demandeur,
+      body.raison_demande,
+      body.details
+    );
   }
 
-  @Get('demandeur/:idDemandeur')
-  async getByDemandeur(@Param('idDemandeur') idDemandeur: string): Promise<DemandeMateriel[]> {
-    return await this.demandeMaterielService.findByDemandeur(idDemandeur);
+  @Get()
+  findAll() {
+    return this.demandeService.findAll();
   }
 
   @Get(':id')
-  async getOne(@Param('id') id: string): Promise<DemandeMateriel> {
-    return await this.demandeMaterielService.findOne(id);
+  findOne(@Param('id') id: string) {
+    return this.demandeService.findOne(id);
   }
 
-  @Post()
-  async create(@Body() demandeData: {
-    id_demandeur: string;
-    raison_demande: string;
-    details: Array<{ id_materiel: string; quantite_demander: number }>;
-  }) {
-    try {
-      if (!demandeData.id_demandeur || !demandeData.raison_demande) {
-        throw new HttpException(
-          'id_demandeur et raison_demande sont requis',
-          HttpStatus.BAD_REQUEST
-        );
-      }
-
-      if (!demandeData.details || demandeData.details.length === 0) {
-        throw new HttpException(
-          'Au moins un matériel doit être demandé',
-          HttpStatus.BAD_REQUEST
-        );
-      }
-
-      const result = await this.demandeMaterielService.create(
-        demandeData.id_demandeur,
-        demandeData.raison_demande,
-        demandeData.details
-      );
-
-      return result;
-    } catch (error) {
-      console.error('Erreur création demande:', error);
-      
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      
-      throw new HttpException(
-        `Erreur création demande: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
+  @Get('demandeur/:id')
+  findByDemandeur(@Param('id') id: string) {
+    return this.demandeService.findByDemandeur(id);
   }
 
   @Put(':id')
-  async update(
-    @Param('id') id: string,
-    @Body() updateData: {
-      raison_demande: string;
-    },
-  ): Promise<DemandeMateriel> {
-    return await this.demandeMaterielService.update(id, updateData.raison_demande);
+  update(@Param('id') id: string, @Body() body: any) {
+    return this.demandeService.update(id, body.raison_demande);
   }
 
-  @Put(':id/validation')
-  async validateDemande(
-    @Param('id') id: string,
-    @Body() validationData: { statut: 'approuvee' | 'refusee'; motif_refus?: string }
-  ) {
-    try {
-      const demande = await this.demandeMaterielService.updateStatut(
-        id,
-        validationData.statut,
-        validationData.motif_refus
-      );
-      
-      return {
-        success: true,
-        message: `Demande ${validationData.statut === 'approuvee' ? 'approuvée' : 'refusée'} avec succès`,
-        data: demande
-      };
-    } catch (error) {
-      throw new HttpException(
-        `Erreur validation demande: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
+  @Put(':id/statut')
+  updateStatut(@Param('id') id: string, @Body() body: any) {
+    return this.demandeService.updateStatut(id, body.statut, body.motif_refus);
   }
 
   @Delete(':id')
-  async delete(@Param('id') id: string): Promise<{ message: string }> {
-    await this.demandeMaterielService.remove(id);
-    return { message: 'Demande supprimée avec succès' };
+  remove(@Param('id') id: string) {
+    return this.demandeService.remove(id);
+  }
+
+  // Routes pour gérer les détails
+  @Post(':id/details')
+  addDetail(@Param('id') id: string, @Body() body: any) {
+    return this.demandeService.addDetail(id, body.id_materiel, body.quantite_demander);
+  }
+
+  @Put('details/:id')
+  updateDetail(@Param('id') id: string, @Body() body: any) {
+    return this.demandeService.updateDetail(id, body.quantite_demander);
+  }
+
+  @Delete('details/:id')
+  removeDetail(@Param('id') id: string) {
+    return this.demandeService.removeDetail(id);
   }
 }

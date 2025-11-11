@@ -10,10 +10,11 @@ export class FournisseurController {
     @Body('nom') nom: string,
     @Body('contact') contact: string,
     @Body('adresse') adresse: string,
-    @Body('id_typemateriel') idTypeMateriel: string,
-    @Body('date_livraison') dateLivraison: string,
+    @Body('nif') nif: string,
+    @Body('stat') stat: string,
+    @Body('email') email: string
   ) {
-    return this.service.create(nom, contact, adresse, idTypeMateriel, new Date(dateLivraison));
+    return this.service.create(nom, contact, adresse, nif, stat, email);
   }
 
   @Get()
@@ -31,21 +32,17 @@ export class FournisseurController {
     return this.service.findOne(id);
   }
 
-  @Get('nom/:nom')
-  findByNom(@Param('nom') nom: string) {
-    return this.service.findByNom(nom);
-  }
-
   @Put(':id')
   update(
     @Param('id') id: string,
     @Body('nom') nom: string,
     @Body('contact') contact: string,
     @Body('adresse') adresse: string,
-    @Body('id_typemateriel') idTypeMateriel: string,
-    @Body('date_livraison') dateLivraison: string,
+    @Body('nif') nif: string,
+    @Body('stat') stat: string,
+    @Body('email') email: string
   ) {
-    return this.service.update(id, nom, contact, adresse, idTypeMateriel, new Date(dateLivraison));
+    return this.service.update(id, nom, contact, adresse, nif, stat, email);
   }
 
   @Delete(':id')
