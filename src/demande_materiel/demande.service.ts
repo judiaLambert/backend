@@ -53,78 +53,74 @@ export class DemandeMaterielService {
   }
 
   // Créer une demande avec ses détails (transaction)
-  async create(
-    id_demandeur: string,
-    raison_demande: string,
-    details: Array<{ id_materiel: string; quantite_demander: number }>
-  ) {
-    return await this.dataSource.transaction(async (manager) => {
-      // 1. Vérifier que le demandeur existe
-      const demandeur = await manager.findOne(Demandeur, {
-        where: { id_demandeur }
-      });
-
-      if (!demandeur) {
-        throw new NotFoundException(`Demandeur ${id_demandeur} non trouvé`);
-      }
-
-      // 2. Générer l'ID de la demande
-      const id_demande = await this.generateDemandeId();
-
-      // 3. Créer la demande principale
-      const demande = manager.create(DemandeMateriel, {
-        id: id_demande,
-        demandeur: { id_demandeur },
-        raison_demande: raison_demande,
-        date_demande: new Date(),
-        statut: 'en_attente'
-      });
-
-      // 4. Sauvegarder la demande
-      const savedDemande = await manager.save(DemandeMateriel, demande);
-
-      // 5. Créer et sauvegarder les détails
-      const detailDemandes: DetailDemande[] = [];
-      
-      for (const detail of details) {
-        // Vérifier que le matériel existe
-        const materiel = await manager.findOne(Materiel, {
-          where: { id: detail.id_materiel }
-        });
-
-        if (!materiel) {
-          throw new NotFoundException(`Matériel ${detail.id_materiel} non trouvé`);
-        }
-
-        // Générer un ID unique pour le détail
-        const id_detail = await this.generateDetailId();
-
-        // Créer le détail
-        const detailDemande = manager.create(DetailDemande, {
-          id: id_detail,
-          demandeMateriel: savedDemande,
-          materiel: { id: detail.id_materiel },
-          quantite_demander: detail.quantite_demander
-        });
-
-        // Sauvegarder le détail
-        const savedDetail = await manager.save(DetailDemande, detailDemande);
-        detailDemandes.push(savedDetail);
-      }
-
-      // 6. Récupérer la demande complète avec relations
-      const demandeComplete = await manager.findOne(DemandeMateriel, {
-        where: { id: savedDemande.id },
-        relations: ['demandeur', 'detailDemandes', 'detailDemandes.materiel']
-      });
-
-      return {
-        success: true,
-        message: 'Demande créée avec succès et en attente de validation',
-        data: demandeComplete
-      };
+ 
+async create(
+  id_demandeur: string,
+  raison_demande: string,
+  details: Array<{ id_materiel: string; quantite_demander: number }>,
+  type_possession: string = 'temporaire',
+  date_retour?: Date
+) {
+  return await this.dataSource.transaction(async (manager) => {
+    const demandeur = await manager.findOne(Demandeur, {
+      where: { id_demandeur }
     });
-  }
+
+    if (!demandeur) {
+      throw new NotFoundException(`Demandeur ${id_demandeur} non trouvé`);
+    }
+
+    const id_demande = await this.generateDemandeId();
+
+    const demande = manager.create(DemandeMateriel, {
+      id: id_demande,
+      demandeur: { id_demandeur },
+      raison_demande: raison_demande,
+      date_demande: new Date(),
+      statut: 'en_attente',
+      type_possession: type_possession,
+      date_retour : date_retour
+    });
+
+    const savedDemande = await manager.save(DemandeMateriel, demande);
+
+    // Créer les détails...
+    const detailDemandes: DetailDemande[] = [];
+    
+    for (const detail of details) {
+      const materiel = await manager.findOne(Materiel, {
+        where: { id: detail.id_materiel }
+      });
+
+      if (!materiel) {
+        throw new NotFoundException(`Matériel ${detail.id_materiel} non trouvé`);
+      }
+
+      const id_detail = await this.generateDetailId();
+
+      const detailDemande = manager.create(DetailDemande, {
+        id: id_detail,
+        demandeMateriel: savedDemande,
+        materiel: { id: detail.id_materiel },
+        quantite_demander: detail.quantite_demander
+      });
+
+      const savedDetail = await manager.save(DetailDemande, detailDemande);
+      detailDemandes.push(savedDetail);
+    }
+
+    const demandeComplete = await manager.findOne(DemandeMateriel, {
+      where: { id: savedDemande.id },
+      relations: ['demandeur', 'detailDemandes', 'detailDemandes.materiel']
+    });
+
+    return {
+      success: true,
+      message: 'Demande créée avec succès et en attente de validation',
+      data: demandeComplete
+    };
+  });
+}
 
   // Récupérer toutes les demandes
   async findAll(): Promise<DemandeMateriel[]> {

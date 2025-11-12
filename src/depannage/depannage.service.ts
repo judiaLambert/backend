@@ -10,6 +10,7 @@ export class DepannageService {
     @InjectRepository(Depannage)
     private depannageRepository: Repository<Depannage>,
     private materielService: MaterielService,
+    
   ) {}
 
   async generateId(): Promise<string> {

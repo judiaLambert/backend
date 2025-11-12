@@ -4,15 +4,17 @@ import { DemandeMaterielService } from './demande.service';
 @Controller('demandes')
 export class DemandeMaterielController {
   constructor(private readonly demandeService: DemandeMaterielService) {}
-
-  @Post()
-  create(@Body() body: any) {
-    return this.demandeService.create(
-      body.id_demandeur,
-      body.raison_demande,
-      body.details
-    );
-  }
+  
+@Post()
+create(@Body() body: any) {
+  return this.demandeService.create(
+    body.id_demandeur,
+    body.raison_demande,
+    body.details,
+    body.type_possession,
+    body.date_retour
+  );
+}
 
   @Get()
   findAll() {
