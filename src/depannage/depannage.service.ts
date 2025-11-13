@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Depannage } from './depannage.entity';
@@ -10,7 +10,6 @@ export class DepannageService {
     @InjectRepository(Depannage)
     private depannageRepository: Repository<Depannage>,
     private materielService: MaterielService,
-    
   ) {}
 
   async generateId(): Promise<string> {
@@ -29,7 +28,6 @@ export class DepannageService {
   }
 
   private async updateEtatMateriel(id_materiel: string, statut_depannage: string) {
-    
     let nouvelEtatDesignation: string;
     
     switch (statut_depannage) {
@@ -46,33 +44,30 @@ export class DepannageService {
         nouvelEtatDesignation = 'disponible ';
         break;
       default:
-        console.log(' Statut non reconnu:', statut_depannage);
+        console.log('⚠️ Statut non reconnu:', statut_depannage);
         return;
     }
     
-    console.log(' Nouvel état recherché:', nouvelEtatDesignation);
+    console.log('🔍 Nouvel état recherché:', nouvelEtatDesignation);
     
     try {
-        const tousLesEtats = await this.materielService.getEtatsMateriel();
-    console.log(' TOUS LES ÉTATS DISPONIBLES:', tousLesEtats.map(e => e.designation));
-    
-      // Trouver l'ID de l'état correspondant
+      const tousLesEtats = await this.materielService.getEtatsMateriel();
+      console.log('📋 TOUS LES ÉTATS DISPONIBLES:', tousLesEtats.map(e => e.designation));
+      
       const etatCorrespondant = await this.materielService.findEtatByDesignation(nouvelEtatDesignation);
       
-      console.log(' État correspondant trouvé:', etatCorrespondant);
+      console.log('✓ État correspondant trouvé:', etatCorrespondant);
       
       if (etatCorrespondant) {
-        console.log(' Mise à jour matériel vers:', etatCorrespondant.designation);
+        console.log('🔄 Mise à jour matériel vers:', etatCorrespondant.designation);
         await this.materielService.updateEtat(id_materiel, etatCorrespondant.id);
-        console.log(' Matériel mis à jour avec succès');
+        console.log('✅ Matériel mis à jour avec succès');
       } else {
-        console.log(' État non trouvé pour:', nouvelEtatDesignation);
+        console.log('❌ État non trouvé pour:', nouvelEtatDesignation);
       }
     } catch (error) {
-      console.error(' Erreur lors de la mise à jour:', error);
+      console.error('❌ Erreur lors de la mise à jour:', error);
     }
-    
-   
   }
 
   async create(
@@ -82,12 +77,57 @@ export class DepannageService {
     description_panne: string,
     statut_depannage: string,
   ) {
+    // Validation des données obligatoires
+    if (!id_materiel) {
+      throw new BadRequestException('Le matériel est obligatoire');
+    }
+    if (!id_demandeur) {
+      throw new BadRequestException('Le demandeur est obligatoire');
+    }
+    if (!description_panne) {
+      throw new BadRequestException('La description de la panne est obligatoire');
+    }
+
+    // VÉRIFICATION : Le demandeur existe-t-il vraiment ?
+    const demandeurExists = await this.depannageRepository.manager
+      .getRepository('Demandeur')
+      .findOne({ where: { id_demandeur: id_demandeur } });
+    
+    if (!demandeurExists) {
+      throw new BadRequestException(
+        `Le demandeur avec l'ID "${id_demandeur}" n'existe pas dans la base de données. ` +
+        `Vérifiez que la clé primaire "id_demandeur" est correcte.`
+      );
+    }
+
+    // VÉRIFICATION : Le matériel existe-t-il vraiment ?
+    const materielExists = await this.depannageRepository.manager
+      .getRepository('Materiel')
+      .findOne({ where: { id: id_materiel } });
+    
+    if (!materielExists) {
+      throw new BadRequestException(
+        `Le matériel avec l'ID "${id_materiel}" n'existe pas dans la base de données.`
+      );
+    }
+
     const id = await this.generateId();
     
+    console.log('📝 Création dépannage avec:', {
+      id,
+      id_materiel,
+      id_demandeur,
+      date_signalement,
+      description_panne,
+      statut_depannage
+    });
+    console.log('✅ Demandeur trouvé:', demandeurExists);
+    console.log('✅ Matériel trouvé:', materielExists);
+
     const depannage = this.depannageRepository.create({
       id,
-      materiel: { id: id_materiel } as any,
-      demandeur: { id: id_demandeur } as any,
+      id_materiel,
+      id_demandeur,
       date_signalement,
       description_panne,
       statut_depannage,
@@ -151,11 +191,11 @@ export class DepannageService {
     }
     
     if (updateData.id_materiel !== undefined) {
-      updateFields.materiel = { id: updateData.id_materiel } as any;
+      updateFields.id_materiel = updateData.id_materiel;
     }
     
     if (updateData.id_demandeur !== undefined) {
-      updateFields.demandeur = { id: updateData.id_demandeur } as any;
+      updateFields.id_demandeur = updateData.id_demandeur;
     }
 
     await this.depannageRepository.update(id, updateFields);
@@ -164,11 +204,11 @@ export class DepannageService {
     // Si le statut a changé, mettre à jour l'état du matériel
     if (updateData.statut_depannage && updateData.statut_depannage !== depannage.statut_depannage) {
       console.log('🔄 STATUT A CHANGÉ - Synchronisation état matériel');
-      const materielId = updateData.id_materiel || depannage.materiel.id;
+      const materielId = updateData.id_materiel || depannage.id_materiel;
       console.log('🎯 Matériel à mettre à jour:', materielId);
       await this.updateEtatMateriel(materielId, updateData.statut_depannage);
     } else {
-      console.log('❌ Pas de changement de statut détecté');
+      console.log('ℹ️ Pas de changement de statut détecté');
     }
 
     console.log('✅ FIN UPDATE');
@@ -180,7 +220,7 @@ export class DepannageService {
     const result = await this.depannageRepository.delete(id);
     
     // Remettre le matériel en "disponible" si le dépannage est supprimé
-    await this.updateEtatMateriel(depannage.materiel.id, 'Résolu');
+    await this.updateEtatMateriel(depannage.id_materiel, 'Résolu');
     
     return result;
   }
@@ -195,7 +235,7 @@ export class DepannageService {
 
   async findByDemandeur(id_demandeur: string) {
     return await this.depannageRepository.find({
-      where: { demandeur: { id_demandeur: id_demandeur } },
+      where: { id_demandeur },
       relations: ['materiel', 'demandeur'],
       order: { date_signalement: 'DESC' },
     });
@@ -203,7 +243,7 @@ export class DepannageService {
 
   async findByMateriel(id_materiel: string) {
     return await this.depannageRepository.find({
-      where: { materiel: { id: id_materiel } },
+      where: { id_materiel },
       relations: ['materiel', 'demandeur'],
       order: { date_signalement: 'DESC' },
     });
