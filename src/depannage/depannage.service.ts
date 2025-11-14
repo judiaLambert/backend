@@ -138,6 +138,14 @@ export class DepannageService {
     // Mettre à jour l'état du matériel
     await this.updateEtatMateriel(id_materiel, statut_depannage);
     
+    // LOG : Notification pour l'admin
+    console.log('🔔 NOTIFICATION ADMIN: Nouveau dépannage signalé', {
+      id: savedDepannage.id,
+      materiel: materielExists.designation,
+      demandeur: `${demandeurExists.nom}`,
+      statut: statut_depannage
+    });
+    
     return savedDepannage;
   }
 
@@ -207,6 +215,24 @@ export class DepannageService {
       const materielId = updateData.id_materiel || depannage.id_materiel;
       console.log('🎯 Matériel à mettre à jour:', materielId);
       await this.updateEtatMateriel(materielId, updateData.statut_depannage);
+      
+      // LOG : Notification pour le demandeur
+      console.log('🔔 NOTIFICATION DEMANDEUR: Statut dépannage mis à jour', {
+        id: id,
+        ancien_statut: depannage.statut_depannage,
+        nouveau_statut: updateData.statut_depannage,
+        demandeur_id: depannage.id_demandeur,
+        materiel: depannage.materiel?.designation
+      });
+      
+      // Message spécifique selon le statut
+      if (updateData.statut_depannage === 'Résolu') {
+        console.log('✅ Message: Votre matériel est réparé et disponible !');
+      } else if (updateData.statut_depannage === 'En cours') {
+        console.log('⚙️ Message: Réparation en cours, merci de patienter');
+      } else if (updateData.statut_depannage === 'Irréparable') {
+        console.log('❌ Message: Matériel irréparable, veuillez contacter le service');
+      }
     } else {
       console.log('ℹ️ Pas de changement de statut détecté');
     }

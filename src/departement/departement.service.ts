@@ -10,13 +10,35 @@ export class DepartementService {
     private departementRepository: Repository<Departement>,
   ) {}
 
-  async create(idDepartement: string, numSalle: string, idTypeDepartement: number, nomService: string) {
+  // Fonction pour générer le prochain ID au format DEP01, DEP02, etc.
+  private async generateNextId(): Promise<string> {
+    const lastDepartement = await this.departementRepository
+      .createQueryBuilder('dept')
+      .orderBy('dept.id_departement', 'DESC')
+      .getOne();
+
+    if (!lastDepartement) {
+      return 'DEP01'; // Premier département
+    }
+
+    // Extraire le numéro de l'ID précédent (ex: DEP01 -> 01)
+    const lastNumber = parseInt(lastDepartement.id_departement.replace('DEP', ''));
+    const nextNumber = lastNumber + 1;
+    
+    // Formater avec zéro padding (ex: 2 -> 02)
+    return `DEP${nextNumber.toString().padStart(2, '0')}`;
+  }
+
+  async create(numSalle: string, idTypeDepartement: string, nomService: string) {
+    const newId = await this.generateNextId();
+    
     const departement = this.departementRepository.create({
-      id_departement: idDepartement,
+      id_departement: newId,
       num_salle: numSalle,
-      typeDepartement: { id: idTypeDepartement } as any,
+      typeDepartement: { id_typedepartement: idTypeDepartement },
       nom_service: nomService,
     });
+    
     return await this.departementRepository.save(departement);
   }
 
@@ -33,10 +55,10 @@ export class DepartementService {
     });
   }
 
-  async update(idDepartement: string, numSalle: string, idTypeDepartement: number, nomService: string) {
+  async update(idDepartement: string, numSalle: string, idTypeDepartement: string, nomService: string) {
     await this.departementRepository.update(idDepartement, {
       num_salle: numSalle,
-      typeDepartement: { id: idTypeDepartement } as any,
+      typeDepartement: { id_typedepartement: idTypeDepartement },
       nom_service: nomService,
     });
     return this.findOne(idDepartement);

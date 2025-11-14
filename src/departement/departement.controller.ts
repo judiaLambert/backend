@@ -7,12 +7,12 @@ export class DepartementController {
 
   @Post()
   create(
-    @Body('id_departement') idDepartement: string,
     @Body('num_salle') numSalle: string,
-    @Body('id_typedepartement') idTypeDepartement: number,
+    @Body('id_typedepartement') idTypeDepartement: string,
     @Body('nom_service') nomService: string,
   ) {
-    return this.service.create(idDepartement, numSalle, idTypeDepartement, nomService);
+    // Ne plus accepter id_departement du client, il est généré automatiquement
+    return this.service.create(numSalle, idTypeDepartement, nomService);
   }
 
   @Get()
@@ -29,7 +29,7 @@ export class DepartementController {
   update(
     @Param('id_departement') idDepartement: string,
     @Body('num_salle') numSalle: string,
-    @Body('id_typedepartement') idTypeDepartement: number,
+    @Body('id_typedepartement') idTypeDepartement: string,
     @Body('nom_service') nomService: string,
   ) {
     return this.service.update(idDepartement, numSalle, idTypeDepartement, nomService);

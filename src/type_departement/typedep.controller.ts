@@ -1,4 +1,3 @@
-// src/type-departement/type-departement.controller.ts
 import { Controller, Get, Post, Body, Param, Put, Delete } from '@nestjs/common';
 import { TypeDepartementService } from './typedep.service';
 

@@ -1,17 +1,17 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, Column, PrimaryColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { TypeDepartement } from '../type_departement/typedep.entity';
 
 @Entity('departement')
 export class Departement {
-  @PrimaryGeneratedColumn()
-  id_departement: string; // Changé de 'id' à 'id_departement'
-
-  @ManyToOne(() => TypeDepartement)
-  @JoinColumn({ name: 'id_typedepartement' })
-  typeDepartement: TypeDepartement;
+  @PrimaryColumn()
+  id_departement: string;
 
   @Column()
-  num_salle: string; // Nouveau champ normal
+  num_salle: string;
+
+  @ManyToOne(() => TypeDepartement, { eager: true })
+  @JoinColumn({ name: 'id_typedepartement' })
+  typeDepartement: TypeDepartement;
 
   @Column()
   nom_service: string;
