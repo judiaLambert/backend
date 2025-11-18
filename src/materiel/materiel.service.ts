@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Materiel } from './materiel.entity';
+import { Materiel, CategorieMateriel } from './materiel.entity';
 import { EtatMateriel } from '../etatmateriel/etatmateriel.entity';
 
 @Injectable()
@@ -13,18 +13,26 @@ export class MaterielService {
     private etatMaterielRepository: Repository<EtatMateriel>,
   ) {}
 
-  async create(idEtatMateriel: string, idTypeMateriel: string, designation: string) {
+  async create(
+    idEtatMateriel: string, 
+    idTypeMateriel: string, 
+    idTypeComptabilite: string,
+    designation: string,
+    categorie: CategorieMateriel
+  ) {
     const materiel = this.materielRepository.create({
       etatMateriel: { id: idEtatMateriel } as any,
       typeMateriel: { id: idTypeMateriel } as any,
+      typeComptabilite: { id_typecomptabilite: idTypeComptabilite } as any,
       designation,
+      categorie_materiel: categorie
     });
     return await this.materielRepository.save(materiel);
   }
 
   async findAll() {
     return await this.materielRepository.find({
-      relations: ['etatMateriel', 'typeMateriel'],
+      relations: ['etatMateriel', 'typeMateriel', 'typeComptabilite'],
       order: { id: 'ASC' }
     });
   }
@@ -32,15 +40,24 @@ export class MaterielService {
   async findOne(id: string) {
     return await this.materielRepository.findOne({
       where: { id },
-      relations: ['etatMateriel', 'typeMateriel'],
+      relations: ['etatMateriel', 'typeMateriel', 'typeComptabilite'],
     });
   }
 
-  async update(id: string, idEtatMateriel: string, idTypeMateriel: string, designation: string) {
+  async update(
+    id: string, 
+    idEtatMateriel: string, 
+    idTypeMateriel: string, 
+    idTypeComptabilite: string,
+    designation: string,
+    categorie: CategorieMateriel
+  ) {
     await this.materielRepository.update(id, {
       etatMateriel: { id: idEtatMateriel } as any,
       typeMateriel: { id: idTypeMateriel } as any,
+      typeComptabilite: { id_typecomptabilite: idTypeComptabilite } as any,
       designation,
+      categorie_materiel: categorie
     });
     return this.findOne(id);
   }
@@ -59,14 +76,21 @@ export class MaterielService {
   async findByEtat(etatId: string) {
     return await this.materielRepository.find({
       where: { etatMateriel: { id: etatId } },
-      relations: ['etatMateriel', 'typeMateriel'],
+      relations: ['etatMateriel', 'typeMateriel', 'typeComptabilite'],
     });
   }
 
   async findByType(typeId: string) {
     return await this.materielRepository.find({
       where: { typeMateriel: { id: typeId } },
-      relations: ['etatMateriel', 'typeMateriel'],
+      relations: ['etatMateriel', 'typeMateriel', 'typeComptabilite'],
+    });
+  }
+
+  async findByCategorie(categorie: CategorieMateriel) {
+    return await this.materielRepository.find({
+      where: { categorie_materiel: categorie },
+      relations: ['etatMateriel', 'typeMateriel', 'typeComptabilite'],
     });
   }
 

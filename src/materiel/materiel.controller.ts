@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Body, Param, Put, Delete, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Put, Delete } from '@nestjs/common';
 import { MaterielService } from './materiel.service';
+import { CategorieMateriel } from './materiel.entity';
 
 @Controller('materiel')
 export class MaterielController {
@@ -9,9 +10,17 @@ export class MaterielController {
   create(
     @Body('id_etatmateriel') idEtatMateriel: string,
     @Body('id_typemateriel') idTypeMateriel: string,
+    @Body('id_typecomptabilite') idTypeComptabilite: string,
     @Body('designation') designation: string,
+    @Body('categorie_materiel') categorie: CategorieMateriel
   ) {
-    return this.service.create(idEtatMateriel, idTypeMateriel, designation);
+    return this.service.create(
+      idEtatMateriel, 
+      idTypeMateriel, 
+      idTypeComptabilite, 
+      designation, 
+      categorie
+    );
   }
 
   @Get()
@@ -19,14 +28,9 @@ export class MaterielController {
     return this.service.findAll();
   }
 
-  @Get('etat/:etatId')
-  findByEtat(@Param('etatId') etatId: string) {
-    return this.service.findByEtat(etatId);
-  }
-
-  @Get('type/:typeId')
-  findByType(@Param('typeId') typeId: string) {
-    return this.service.findByType(typeId);
+  @Get('categorie/:categorie')
+  findByCategorie(@Param('categorie') categorie: CategorieMateriel) {
+    return this.service.findByCategorie(categorie);
   }
 
   @Get(':id')
@@ -39,9 +43,18 @@ export class MaterielController {
     @Param('id') id: string,
     @Body('id_etatmateriel') idEtatMateriel: string,
     @Body('id_typemateriel') idTypeMateriel: string,
+    @Body('id_typecomptabilite') idTypeComptabilite: string,
     @Body('designation') designation: string,
+    @Body('categorie_materiel') categorie: CategorieMateriel
   ) {
-    return this.service.update(id, idEtatMateriel, idTypeMateriel, designation);
+    return this.service.update(
+      id, 
+      idEtatMateriel, 
+      idTypeMateriel, 
+      idTypeComptabilite, 
+      designation, 
+      categorie
+    );
   }
 
   @Delete(':id')

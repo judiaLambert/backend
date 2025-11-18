@@ -19,6 +19,7 @@ import { DepannageModule } from './depannage/depannage.module';
 import { InventaireModule } from './inventaire/inventaire.module';
 import { MouvementStockModule } from './mouvement_stock/mouvement.module';
 import { AuthModule } from './auth/auth.module';
+import { TypeComptabiliteModule } from './type_comptabilite/typecompta.module';
 
 @Module({
   imports: [connexionModule, TypeDepartementModule,
@@ -26,7 +27,7 @@ import { AuthModule } from './auth/auth.module';
     ,EtatMaterielModule,FournisseurModule, MaterielModule,
     AcquisitionModule,ApprovisionnementModule,DetailApprovisionnementModule,
     DemandeModule,DetailDemandeModule,AttributionModule,DepannageModule,
-    InventaireModule,MouvementStockModule,AuthModule],
+    InventaireModule,MouvementStockModule,AuthModule,TypeComptabiliteModule],
   controllers: [AppController],
   providers: [AppService],
 })
