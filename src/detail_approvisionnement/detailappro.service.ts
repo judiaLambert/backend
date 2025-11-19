@@ -1,24 +1,77 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DetailApprovisionnement } from './detailappro.entity';
+import { InventaireService } from '../inventaire/inventaire.service';
 
 @Injectable()
 export class DetailApprovisionnementService {
   constructor(
     @InjectRepository(DetailApprovisionnement)
     private detailApproRepository: Repository<DetailApprovisionnement>,
+    private inventaireService: InventaireService,
   ) {}
 
-  async create(idMateriel: string, idAppro: string, quantiteRecu: number, prixUnitaire: number, quantiteTotal: number) {
+  // ✅ CORRECTION : Utiliser createQueryBuilder au lieu de findOne()
+  async generateId(): Promise<string> {
+    const lastDetail = await this.detailApproRepository
+      .createQueryBuilder('detail')
+      .orderBy('detail.id', 'DESC')
+      .limit(1)
+      .getOne();
+
+    if (!lastDetail) {
+      return 'DAP001';
+    }
+
+    const lastNumber = parseInt(lastDetail.id.replace('DAP', ''));
+    const newNumber = lastNumber + 1;
+    return `DAP${newNumber.toString().padStart(3, '0')}`;
+  }
+
+  async create(
+    idMateriel: string, 
+    idAppro: string, 
+    quantiteRecu: number, 
+    prixUnitaire: number, 
+    quantiteTotal?: number
+  ) {
+    // Validation
+    if (quantiteRecu <= 0) {
+      throw new BadRequestException('La quantité reçue doit être supérieure à 0');
+    }
+    if (prixUnitaire < 0) {
+      throw new BadRequestException('Le prix unitaire ne peut pas être négatif');
+    }
+
+    // Si quantiteTotal n'est pas fourni, on le met égal à quantiteRecu
+    const total = quantiteTotal ?? quantiteRecu;
+
+    if (total <= 0) {
+      throw new BadRequestException('La quantité totale doit être supérieure à 0');
+    }
+
+    const id = await this.generateId();
+
     const detailAppro = this.detailApproRepository.create({
+      id,
       materiel: { id: idMateriel } as any,
       approvisionnement: { id: idAppro } as any,
       quantiteRecu,
       prixUnitaire,
-      quantiteTotal,
+      quantiteTotal: total,
     });
-    return await this.detailApproRepository.save(detailAppro);
+
+    const saved = await this.detailApproRepository.save(detailAppro);
+
+    // ✅ METTRE À JOUR L'INVENTAIRE après l'approvisionnement
+    try {
+      await this.inventaireService.approvisionner(idMateriel, quantiteRecu);
+    } catch (err) {
+      console.warn(`Inventaire non mis à jour pour ${idMateriel}:`, err.message);
+    }
+
+    return saved;
   }
 
   async findAll() {
@@ -29,10 +82,16 @@ export class DetailApprovisionnementService {
   }
 
   async findOne(id: string) {
-    return await this.detailApproRepository.findOne({
+    const detail = await this.detailApproRepository.findOne({
       where: { id },
       relations: ['materiel', 'materiel.typeMateriel', 'approvisionnement', 'approvisionnement.acquisition'],
     });
+
+    if (!detail) {
+      throw new NotFoundException(`Détail approvisionnement ${id} non trouvé`);
+    }
+
+    return detail;
   }
 
   async findByApprovisionnement(approId: string) {
@@ -43,18 +102,63 @@ export class DetailApprovisionnementService {
     });
   }
 
-  async update(id: string, idMateriel: string, idAppro: string, quantiteRecu: number, prixUnitaire: number, quantiteTotal: number) {
+  async update(
+    id: string, 
+    idMateriel: string, 
+    idAppro: string, 
+    quantiteRecu: number, 
+    prixUnitaire: number, 
+    quantiteTotal?: number
+  ) {
+    const detail = await this.findOne(id);
+
+    // Validation
+    if (quantiteRecu <= 0) {
+      throw new BadRequestException('La quantité reçue doit être supérieure à 0');
+    }
+    if (prixUnitaire < 0) {
+      throw new BadRequestException('Le prix unitaire ne peut pas être négatif');
+    }
+
+    const total = quantiteTotal ?? quantiteRecu;
+
+    if (total <= 0) {
+      throw new BadRequestException('La quantité totale doit être supérieure à 0');
+    }
+
+    // Calculer la différence pour mettre à jour l'inventaire
+    const diffQuantite = quantiteRecu - detail.quantiteRecu;
+
     await this.detailApproRepository.update(id, {
       materiel: { id: idMateriel } as any,
       approvisionnement: { id: idAppro } as any,
       quantiteRecu,
       prixUnitaire,
-      quantiteTotal,
+      quantiteTotal: total,
     });
+
+    // ✅ METTRE À JOUR L'INVENTAIRE si la quantité a changé
+    if (diffQuantite !== 0) {
+      try {
+        await this.inventaireService.approvisionner(idMateriel, diffQuantite);
+      } catch (err) {
+        console.warn(`Inventaire non mis à jour pour ${idMateriel}:`, err.message);
+      }
+    }
+
     return this.findOne(id);
   }
 
   async remove(id: string) {
+    const detail = await this.findOne(id);
+    
+    // ✅ RETIRER DU STOCK LORS DE LA SUPPRESSION
+    try {
+      await this.inventaireService.approvisionner(detail.materiel.id, -detail.quantiteRecu);
+    } catch (err) {
+      console.warn(`Inventaire non mis à jour lors de la suppression:`, err.message);
+    }
+
     return await this.detailApproRepository.delete(id);
   }
 
@@ -64,7 +168,7 @@ export class DetailApprovisionnementService {
     const stats = {
       totalQuantiteRecu: details.reduce((sum, detail) => sum + detail.quantiteRecu, 0),
       totalQuantiteTotal: details.reduce((sum, detail) => sum + detail.quantiteTotal, 0),
-      totalValeur: details.reduce((sum, detail) => sum + (detail.quantiteRecu * detail.prixUnitaire), 0),
+      totalValeur: details.reduce((sum, detail) => sum + (detail.quantiteRecu * Number(detail.prixUnitaire)), 0),
       parTypeMateriel: {}
     };
 
@@ -80,18 +184,30 @@ export class DetailApprovisionnementService {
       }
       stats.parTypeMateriel[type].quantiteRecu += detail.quantiteRecu;
       stats.parTypeMateriel[type].quantiteTotal += detail.quantiteTotal;
-      stats.parTypeMateriel[type].valeur += detail.quantiteRecu * detail.prixUnitaire;
+      stats.parTypeMateriel[type].valeur += detail.quantiteRecu * Number(detail.prixUnitaire);
     });
 
     return stats;
   }
+
   async getTotalByApprovisionnement(approId: string) {
+    const result = await this.detailApproRepository
+      .createQueryBuilder('detail')
+      .select('SUM(detail.quantite_recu)', 'total')
+      .where('detail.id_approvisionnement = :approId', { approId })
+      .getRawOne();
+    
+    return parseInt(result.total) || 0;
+  }
+  
+async getTotalQuantiteRecuByMateriel(id_materiel: string): Promise<number> {
   const result = await this.detailApproRepository
     .createQueryBuilder('detail')
     .select('SUM(detail.quantite_recu)', 'total')
-    .where('detail.id_appro = :approId', { approId })
+    .where('detail.id_materiel = :id_materiel', { id_materiel })
     .getRawOne();
   
-  return result.total || 0;
+  return parseInt(result.total) || 0;
 }
+
 }

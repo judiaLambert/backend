@@ -1,20 +1,25 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Inventaire } from './inventaire.entity';
+import { Materiel, CategorieMateriel } from '../materiel/materiel.entity';
 
 @Injectable()
 export class InventaireService {
   constructor(
     @InjectRepository(Inventaire)
     private inventaireRepository: Repository<Inventaire>,
+    @InjectRepository(Materiel)
+    private materielRepository: Repository<Materiel>,
   ) {}
 
+  // ✅ CORRECTION : Utiliser createQueryBuilder
   async generateId(): Promise<string> {
-    const lastInventaire = await this.inventaireRepository.findOne({
-      where: {},
-      order: { id: 'DESC' },
-    });
+    const lastInventaire = await this.inventaireRepository
+      .createQueryBuilder('inventaire')
+      .orderBy('inventaire.id', 'DESC')
+      .limit(1)
+      .getOne();
 
     if (!lastInventaire) {
       return 'INV001';
@@ -25,12 +30,30 @@ export class InventaireService {
     return `INV${newNumber.toString().padStart(3, '0')}`;
   }
 
+  // Créer un inventaire (UNIQUEMENT pour matériel DURABLE)
   async create(
     id_materiel: string,
     quantite_stock: number,
     seuil_alerte: number,
     emplacement: string,
   ) {
+    const materiel = await this.materielRepository.findOne({ 
+      where: { id: id_materiel } 
+    });
+    
+    if (!materiel) {
+      throw new NotFoundException(`Matériel ${id_materiel} non trouvé`);
+    }
+
+    if (materiel.categorie_materiel !== CategorieMateriel.DURABLE) {
+      throw new BadRequestException('Impossible de créer un inventaire pour un matériel consommable');
+    }
+
+    const existant = await this.findByMateriel(id_materiel);
+    if (existant) {
+      throw new ConflictException('Un inventaire existe déjà pour ce matériel');
+    }
+
     const id = await this.generateId();
     
     const inventaire = this.inventaireRepository.create({
@@ -44,12 +67,178 @@ export class InventaireService {
       emplacement,
     });
 
+    console.log(`✅ Inventaire créé : ${id} - Stock: ${quantite_stock}`);
     return await this.inventaireRepository.save(inventaire);
+  }
+
+  // ✅ APPROVISIONNEMENT CORRIGÉ avec logs
+  async approvisionner(id_materiel: string, quantite_ajoutee: number) {
+    console.log(`\n=== APPROVISIONNEMENT ===`);
+    console.log(`Matériel: ${id_materiel}`);
+    console.log(`Quantité à ajouter: ${quantite_ajoutee}`);
+
+    const materiel = await this.materielRepository.findOne({ 
+      where: { id: id_materiel } 
+    });
+    
+    if (!materiel) {
+      throw new NotFoundException(`Matériel ${id_materiel} non trouvé`);
+    }
+
+    if (materiel.categorie_materiel !== CategorieMateriel.DURABLE) {
+      console.log(`⚠️ Matériel consommable, pas d'inventaire`);
+      return null;
+    }
+
+    const inventaire = await this.findByMateriel(id_materiel);
+    
+    if (!inventaire) {
+      throw new NotFoundException(`Aucun inventaire trouvé pour le matériel ${id_materiel}`);
+    }
+
+    console.log(`Stock AVANT: ${inventaire.quantite_stock}`);
+    console.log(`Disponible AVANT: ${inventaire.quantite_disponible}`);
+
+    // ✅ CORRECTION : S'assurer que c'est un nombre
+    const quantiteAjouter = Number(quantite_ajoutee);
+    const stockActuel = Number(inventaire.quantite_stock);
+    const dispoActuelle = Number(inventaire.quantite_disponible);
+
+    // Calcul du nouveau stock
+    inventaire.quantite_stock = stockActuel + quantiteAjouter;
+    inventaire.quantite_disponible = dispoActuelle + quantiteAjouter;
+    inventaire.date_dernier_inventaire = new Date();
+    inventaire.date_mise_a_jour = new Date();
+
+    console.log(`Stock APRÈS: ${inventaire.quantite_stock}`);
+    console.log(`Disponible APRÈS: ${inventaire.quantite_disponible}`);
+    console.log(`=========================\n`);
+
+    const saved = await this.inventaireRepository.save(inventaire);
+    return saved;
+  }
+
+  // ATTRIBUTION : Augmenter la quantité réservée, diminuer la quantité disponible
+  async appliquerAttribution(id_materiel: string, quantite: number) {
+    console.log(`\n=== ATTRIBUTION ===`);
+    console.log(`Matériel: ${id_materiel}, Quantité: ${quantite}`);
+
+    const inventaire = await this.findByMateriel(id_materiel);
+    
+    if (!inventaire) {
+      console.log(`⚠️ Pas d'inventaire pour ${id_materiel}`);
+      return null;
+    }
+
+    if (inventaire.materiel.categorie_materiel !== CategorieMateriel.DURABLE) {
+      console.log(`⚠️ Matériel consommable, pas de gestion inventaire`);
+      return inventaire;
+    }
+
+    const quantiteNum = Number(quantite);
+
+    if (quantiteNum > inventaire.quantite_disponible) {
+      throw new BadRequestException(
+        `Quantité insuffisante. Disponible: ${inventaire.quantite_disponible}, Demandé: ${quantiteNum}`
+      );
+    }
+
+    console.log(`Réservée AVANT: ${inventaire.quantite_reservee}`);
+    console.log(`Disponible AVANT: ${inventaire.quantite_disponible}`);
+
+    inventaire.quantite_reservee = Number(inventaire.quantite_reservee) + quantiteNum;
+    inventaire.quantite_disponible = Number(inventaire.quantite_disponible) - quantiteNum;
+    
+    if (inventaire.quantite_disponible < 0) {
+      inventaire.quantite_disponible = 0;
+    }
+
+    console.log(`Réservée APRÈS: ${inventaire.quantite_reservee}`);
+    console.log(`Disponible APRÈS: ${inventaire.quantite_disponible}`);
+    console.log(`===================\n`);
+
+    inventaire.date_mise_a_jour = new Date();
+    await this.inventaireRepository.save(inventaire);
+    
+    return inventaire;
+  }
+
+  // RETOUR DE MATÉRIEL
+  async appliquerRetour(id_materiel: string, quantite: number) {
+    const inventaire = await this.findByMateriel(id_materiel);
+    
+    if (!inventaire) {
+      return null;
+    }
+
+    if (inventaire.materiel.categorie_materiel !== CategorieMateriel.DURABLE) {
+      return inventaire;
+    }
+
+    const quantiteNum = Number(quantite);
+
+    if (quantiteNum > inventaire.quantite_reservee) {
+      throw new BadRequestException(
+        `Quantité de retour > quantité réservée. Réservée: ${inventaire.quantite_reservee}`
+      );
+    }
+
+    inventaire.quantite_reservee = Number(inventaire.quantite_reservee) - quantiteNum;
+    inventaire.quantite_disponible = Number(inventaire.quantite_disponible) + quantiteNum;
+    
+    if (inventaire.quantite_disponible > inventaire.quantite_stock) {
+      inventaire.quantite_disponible = inventaire.quantite_stock;
+    }
+
+    inventaire.date_mise_a_jour = new Date();
+    await this.inventaireRepository.save(inventaire);
+    
+    return inventaire;
+  }
+
+  // DÉPANNAGE
+  async majDispoSuiteDepannage(
+    id_materiel: string, 
+    quantite_pannee: number, 
+    nouveau_statut: string, 
+    ancien_statut?: string
+  ) {
+    const inventaire = await this.findByMateriel(id_materiel);
+    
+    if (!inventaire) {
+      return null;
+    }
+
+    if (inventaire.materiel.categorie_materiel !== CategorieMateriel.DURABLE) {
+      return inventaire;
+    }
+
+    const quantiteNum = Number(quantite_pannee);
+
+    if (nouveau_statut !== 'Résolu' && (!ancien_statut || ancien_statut === 'Résolu')) {
+      inventaire.quantite_disponible = Number(inventaire.quantite_disponible) - quantiteNum;
+      if (inventaire.quantite_disponible < 0) {
+        inventaire.quantite_disponible = 0;
+      }
+    } 
+    else if (nouveau_statut === 'Résolu' && ancien_statut && ancien_statut !== 'Résolu') {
+      inventaire.quantite_disponible = Number(inventaire.quantite_disponible) + quantiteNum;
+      
+      const maxDispo = Number(inventaire.quantite_stock) - Number(inventaire.quantite_reservee);
+      if (inventaire.quantite_disponible > maxDispo) {
+        inventaire.quantite_disponible = maxDispo;
+      }
+    }
+
+    inventaire.date_mise_a_jour = new Date();
+    await this.inventaireRepository.save(inventaire);
+    
+    return inventaire;
   }
 
   async findAll() {
     return await this.inventaireRepository.find({
-      relations: ['materiel'],
+      relations: ['materiel', 'materiel.typeMateriel', 'materiel.etatMateriel'],
       order: { date_mise_a_jour: 'DESC' },
     });
   }
@@ -57,7 +246,7 @@ export class InventaireService {
   async findOne(id: string) {
     const inventaire = await this.inventaireRepository.findOne({
       where: { id },
-      relations: ['materiel'],
+      relations: ['materiel', 'materiel.typeMateriel', 'materiel.etatMateriel'],
     });
     
     if (!inventaire) {
@@ -88,19 +277,23 @@ export class InventaireService {
     const updateFields: any = {};
     
     if (updateData.quantite_stock !== undefined) {
-      updateFields.quantite_stock = updateData.quantite_stock;
-      // Recalculer la quantité disponible
-      updateFields.quantite_disponible = updateData.quantite_stock - inventaire.quantite_reservee;
+      updateFields.quantite_stock = Number(updateData.quantite_stock);
+      updateFields.quantite_disponible = updateFields.quantite_stock - Number(inventaire.quantite_reservee);
+      if (updateFields.quantite_disponible < 0) {
+        updateFields.quantite_disponible = 0;
+      }
     }
     
     if (updateData.quantite_reservee !== undefined) {
-      updateFields.quantite_reservee = updateData.quantite_reservee;
-      // Recalculer la quantité disponible
-      updateFields.quantite_disponible = inventaire.quantite_stock - updateData.quantite_reservee;
+      updateFields.quantite_reservee = Number(updateData.quantite_reservee);
+      updateFields.quantite_disponible = Number(inventaire.quantite_stock) - updateFields.quantite_reservee;
+      if (updateFields.quantite_disponible < 0) {
+        updateFields.quantite_disponible = 0;
+      }
     }
     
     if (updateData.seuil_alerte !== undefined) {
-      updateFields.seuil_alerte = updateData.seuil_alerte;
+      updateFields.seuil_alerte = Number(updateData.seuil_alerte);
     }
     
     if (updateData.emplacement !== undefined) {
@@ -113,40 +306,8 @@ export class InventaireService {
     return this.findOne(id);
   }
 
-  async updateQuantiteReservee(id_materiel: string, nouvelle_quantite_reservee: number) {
-    const inventaire = await this.findByMateriel(id_materiel);
-    
-    if (!inventaire) {
-      throw new NotFoundException(`Inventaire pour le matériel ${id_materiel} non trouvé`);
-    }
-
-    await this.inventaireRepository.update(inventaire.id, {
-      quantite_reservee: nouvelle_quantite_reservee,
-      quantite_disponible: inventaire.quantite_stock - nouvelle_quantite_reservee,
-      date_mise_a_jour: new Date(),
-    });
-
-    return this.findOne(inventaire.id);
-  }
-
-  async updateQuantiteStock(id_materiel: string, nouvelle_quantite_stock: number) {
-    const inventaire = await this.findByMateriel(id_materiel);
-    
-    if (!inventaire) {
-      throw new NotFoundException(`Inventaire pour le matériel ${id_materiel} non trouvé`);
-    }
-
-    await this.inventaireRepository.update(inventaire.id, {
-      quantite_stock: nouvelle_quantite_stock,
-      quantite_disponible: nouvelle_quantite_stock - inventaire.quantite_reservee,
-      date_dernier_inventaire: new Date(),
-      date_mise_a_jour: new Date(),
-    });
-
-    return this.findOne(inventaire.id);
-  }
-
   async remove(id: string) {
+    const inventaire = await this.findOne(id);
     return await this.inventaireRepository.delete(id);
   }
 
@@ -155,40 +316,51 @@ export class InventaireService {
       .createQueryBuilder('inventaire')
       .where('inventaire.quantite_disponible <= inventaire.seuil_alerte')
       .leftJoinAndSelect('inventaire.materiel', 'materiel')
+      .leftJoinAndSelect('materiel.typeMateriel', 'typeMateriel')
       .orderBy('inventaire.quantite_disponible', 'ASC')
       .getMany();
   }
 
- async getStatistiques() {
-  const totalMateriels = await this.inventaireRepository.count();
-  
-  const stockBas = await this.inventaireRepository
-    .createQueryBuilder('inventaire')
-    .where('inventaire.quantite_disponible <= inventaire.seuil_alerte')
-    .getCount();
-  
-  const stockZero = await this.inventaireRepository.count({
-    where: { quantite_disponible: 0 }
-  });
+  async getStatistiques() {
+    const totalMateriels = await this.inventaireRepository.count();
+    
+    const stockBas = await this.inventaireRepository
+      .createQueryBuilder('inventaire')
+      .where('inventaire.quantite_disponible <= inventaire.seuil_alerte')
+      .getCount();
+    
+    const stockZero = await this.inventaireRepository.count({
+      where: { quantite_disponible: 0 }
+    });
 
     const totalStock = await this.inventaireRepository
       .createQueryBuilder('inventaire')
       .select('SUM(inventaire.quantite_stock)', 'total')
       .getRawOne();
 
-    const totalValeur = await this.inventaireRepository
-    .createQueryBuilder('inventaire')
-    .leftJoin('inventaire.materiel', 'materiel')
-    .leftJoin('detail_approvisionnement', 'detail', 'detail.id_materiel = materiel.id_materiel')
-    .select('SUM(inventaire.quantite_stock * detail.prix_unitaire)', 'total')
-    .getRawOne();
-
     return {
       totalMateriels,
       stockBas,
       stockZero,
       totalStock: parseInt(totalStock.total) || 0,
-      totalValeur: parseFloat(totalValeur.total) || 0,
+      totalReserve: await this.getTotalReserve(),
+      totalDisponible: await this.getTotalDisponible(),
     };
+  }
+
+  private async getTotalReserve() {
+    const result = await this.inventaireRepository
+      .createQueryBuilder('inventaire')
+      .select('SUM(inventaire.quantite_reservee)', 'total')
+      .getRawOne();
+    return parseInt(result.total) || 0;
+  }
+
+  private async getTotalDisponible() {
+    const result = await this.inventaireRepository
+      .createQueryBuilder('inventaire')
+      .select('SUM(inventaire.quantite_disponible)', 'total')
+      .getRawOne();
+    return parseInt(result.total) || 0;
   }
 }

@@ -14,7 +14,7 @@ async function bootstrap() {
   // Activez CORS
   app.enableCors({
     origin: 'http://localhost:5173', // URL de votre frontend React
-    methods: ['GET', 'POST', 'PUT', 'DELETE','PATCH'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE','PATCH','OPTIONS'],
     credentials: true,
   });
   await app.listen(3000);
