@@ -20,6 +20,8 @@ import { InventaireModule } from './inventaire/inventaire.module';
 import { MouvementStockModule } from './mouvement_stock/mouvement.module';
 import { AuthModule } from './auth/auth.module';
 import { TypeComptabiliteModule } from './type_comptabilite/typecompta.module';
+import { CommissionModule } from './commission_recensement/commission.module';
+import { ResultatRecensementModule } from './resultat_recensement/resultat.module';
 
 @Module({
   imports: [connexionModule, TypeDepartementModule,
@@ -27,7 +29,8 @@ import { TypeComptabiliteModule } from './type_comptabilite/typecompta.module';
     ,EtatMaterielModule,FournisseurModule, MaterielModule,
     AcquisitionModule,ApprovisionnementModule,DetailApprovisionnementModule,
     DemandeModule,DetailDemandeModule,AttributionModule,DepannageModule,
-    InventaireModule,MouvementStockModule,AuthModule,TypeComptabiliteModule],
+    InventaireModule,MouvementStockModule,AuthModule,TypeComptabiliteModule,
+  CommissionModule,ResultatRecensementModule],
   controllers: [AppController],
   providers: [AppService],
 })

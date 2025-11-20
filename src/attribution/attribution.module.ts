@@ -7,13 +7,13 @@ import { DetailDemande } from '../detail_demande/detail.entity';  // ← AJOUTER
 import { Materiel } from '../materiel/materiel.entity';
 import { Demandeur } from '../demandeur/demandeur.entity';
 import { DemandeMateriel } from '../demande_materiel/demande.entity';
-
+import { InventaireModule } from '../inventaire/inventaire.module';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Attribution, DetailDemande,        // ← AJOUTER ICI
       Materiel,
       Demandeur,
-      DemandeMateriel])],
+      DemandeMateriel]),InventaireModule],
   controllers: [AttributionController],
   providers: [AttributionService],
 })

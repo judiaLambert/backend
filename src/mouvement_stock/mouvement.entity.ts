@@ -3,31 +3,48 @@ import { Materiel } from '../materiel/materiel.entity';
 
 @Entity('mouvement_stock')
 export class MouvementStock {
-  @PrimaryColumn({ name: 'id_mouvement' })
+  @PrimaryColumn({ name: 'id_mouvement', length: 10 })
   id: string;
 
   @ManyToOne(() => Materiel)
   @JoinColumn({ name: 'id_materiel' })
   materiel: Materiel;
 
-  @Column({ type: 'varchar', length: 20 })
-  type_mouvement: string; // 'ENTREE', 'SORTIE', 'RESERVATION', 'DERESERVATION'
+  @Column({ name: 'type_mouvement', length: 30 })
+  type_mouvement: string; 
+  // 'ENTREE_APPRO', 'SORTIE_ATTRIBUTION', 'RETOUR_ATTRIBUTION', 
+  // 'CORRECTION_POSITIVE', 'CORRECTION_NEGATIVE', 'RESERVATION', 
+  // 'DERESERVATION', 'MISE_EN_PANNE', 'RETOUR_REPARATION'
 
-  @Column({ type: 'int' })
-  quantite: number;
+  @Column({ name: 'quantite_mouvement', type: 'int' })
+  quantite_mouvement: number;
 
-  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({ name: 'date_mouvement', type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   date_mouvement: Date;
 
-  @Column({ type: 'varchar', length: 10, nullable: true })
+  @Column({ name: 'id_reference', length: 20, nullable: true })
   id_reference: string;
 
-  @Column({ type: 'varchar', length: 30, nullable: true })
-  type_reference: string; // 'ATTRIBUTION', 'DEPANNAGE', 'APPROVISIONNEMENT', 'DEMANDE'
+  @Column({ name: 'type_reference', length: 30, nullable: true })
+  type_reference: string; 
+  // 'APPROVISIONNEMENT', 'ATTRIBUTION', 'DEPANNAGE', 'RESULTAT_RECENSEMENT', 'DEMANDE'
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ name: 'prix_unitaire', type: 'decimal', precision: 15, scale: 2, nullable: true })
+  prix_unitaire: number;
+
+  @Column({ name: 'valeur_totale', type: 'decimal', precision: 15, scale: 2, nullable: true })
+  valeur_totale: number;
+
+  @Column({ name: 'motif', type: 'text', nullable: true })
   motif: string;
 
-  @Column({ type: 'varchar', length: 50, nullable: true })
-  utilisateur: string;
+  @Column({ name: 'utilisateur', length: 100, nullable: true })
+  utilisateur: string;u
+
+  // Stock avant et après le mouvement (pour traçabilité)
+  @Column({ name: 'stock_avant', type: 'int', nullable: true })
+  stock_avant: number;
+
+  @Column({ name: 'stock_apres', type: 'int', nullable: true })
+  stock_apres: number;
 }

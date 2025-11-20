@@ -1,90 +1,92 @@
-import { Controller, Get, Post, Put, Delete, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body } from '@nestjs/common';
 import { AttributionService } from './attribution.service';
 
 @Controller('attributions')
 export class AttributionController {
-  constructor(private readonly attributionService: AttributionService) {}
+  constructor(private readonly service: AttributionService) {}
 
-  @Post()
-  async create(@Body() body: {
-    id_materiel: string;
-    id_demandeur: string;
-    date_attribution: string;
-    quantite_attribuee: number;
-    statut_attribution: string;
-    date_retour_prevue?: string;
-    motif_attribution?: string;
-  }) {
-    return await this.attributionService.create(
-      body.id_materiel,
-      body.id_demandeur,
-      new Date(body.date_attribution),
-      body.quantite_attribuee,
-      body.statut_attribution,
-      body.date_retour_prevue ? new Date(body.date_retour_prevue) : undefined,
-      body.motif_attribution
-    );
-  }
-
-  @Get()
-  async findAll() {
-    return await this.attributionService.findAll();
-  }
-
-  @Get('demandeur/:id')
-  async findByDemandeur(@Param('id') id: string) {
-    return await this.attributionService.findByDemandeur(id);
-  }
-
-  @Get('materiel/:id')
-  async findByMateriel(@Param('id') id: string) {
-    return await this.attributionService.findByMateriel(id);
+  // Routes spécifiques EN PREMIER
+  @Get('statistiques')
+  async getStatistiques() {
+    return await this.service.getStatistiques();
   }
 
   @Get('retard')
   async getAttributionsEnRetard() {
-    return await this.attributionService.getAttributionsEnRetard();
+    return await this.service.getAttributionsEnRetard();
   }
 
-  @Get('statistiques')
-  async getStatistiques() {
-    return await this.attributionService.getStatistiques();
+  // ✅ NOUVELLE ROUTE : Matériels approuvés d'un demandeur
+  @Get('demandeur/:id_demandeur/materiels-approuves')
+  async getMaterielsApprouves(@Param('id_demandeur') id_demandeur: string) {
+    return await this.service.getMaterielsDemandesApprouves(id_demandeur);
+  }
+
+  @Get('demandeur/:id_demandeur')
+  async getByDemandeur(@Param('id_demandeur') id_demandeur: string) {
+    return await this.service.findByDemandeur(id_demandeur);
+  }
+
+  @Get('materiel/:id_materiel')
+  async getByMateriel(@Param('id_materiel') id_materiel: string) {
+    return await this.service.findByMateriel(id_materiel);
+  }
+
+  @Get()
+  async findAll() {
+    return await this.service.findAll();
   }
 
   @Get(':id')
   async findOne(@Param('id') id: string) {
-    return await this.attributionService.findOne(id);
+    return await this.service.findOne(id);
+  }
+
+  @Post()
+  async create(
+    @Body()
+    body: {
+      id_materiel: string;
+      id_demandeur: string;
+      quantite_attribuee: number;
+      date_retour_prevue?: string;
+      motif_attribution?: string;
+    },
+  ) {
+    return await this.service.create(
+      body.id_materiel,
+      body.id_demandeur,
+      body.quantite_attribuee,
+      body.date_retour_prevue ? new Date(body.date_retour_prevue) : undefined,
+      body.motif_attribution,
+    );
   }
 
   @Put(':id')
   async update(
     @Param('id') id: string,
-    @Body() body: {
-      date_attribution?: string;
+    @Body()
+    body: {
       quantite_attribuee?: number;
       statut_attribution?: string;
       date_retour_prevue?: string;
       motif_attribution?: string;
-    }
+    },
   ) {
-    const updateData: any = {};
-    
-    if (body.date_attribution) updateData.date_attribution = new Date(body.date_attribution);
-    if (body.quantite_attribuee !== undefined) updateData.quantite_attribuee = body.quantite_attribuee;
-    if (body.statut_attribution) updateData.statut_attribution = body.statut_attribution;
-    if (body.date_retour_prevue) updateData.date_retour_prevue = new Date(body.date_retour_prevue);
-    if (body.motif_attribution) updateData.motif_attribution = body.motif_attribution;
-
-    return await this.attributionService.update(id, updateData);
+    return await this.service.update(id, {
+      ...body,
+      date_retour_prevue: body.date_retour_prevue ? new Date(body.date_retour_prevue) : undefined,
+    });
   }
 
   @Put(':id/statut')
   async updateStatut(@Param('id') id: string, @Body() body: { statut_attribution: string }) {
-    return await this.attributionService.updateStatut(id, body.statut_attribution);
+    return await this.service.updateStatut(id, body.statut_attribution);
   }
 
   @Delete(':id')
   async remove(@Param('id') id: string) {
-    return await this.attributionService.remove(id);
+    await this.service.remove(id);
+    return { message: 'Attribution supprimée avec succès' };
   }
 }
