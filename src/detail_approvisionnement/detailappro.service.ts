@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DetailApprovisionnement } from './detailappro.entity';
 import { InventaireService } from '../inventaire/inventaire.service';
+import { MouvementStockService } from '../mouvement_stock/mouvement.service';
+import { MouvementType } from '../mouvement_stock/mouvement.entity'; // ✅ Import
 
 @Injectable()
 export class DetailApprovisionnementService {
@@ -10,9 +12,9 @@ export class DetailApprovisionnementService {
     @InjectRepository(DetailApprovisionnement)
     private detailApproRepository: Repository<DetailApprovisionnement>,
     private inventaireService: InventaireService,
+    private mouvementService: MouvementStockService,
   ) {}
 
-  // ✅ CORRECTION : Utiliser createQueryBuilder au lieu de findOne()
   async generateId(): Promise<string> {
     const lastDetail = await this.detailApproRepository
       .createQueryBuilder('detail')
@@ -36,7 +38,6 @@ export class DetailApprovisionnementService {
     prixUnitaire: number, 
     quantiteTotal?: number
   ) {
-    // Validation
     if (quantiteRecu <= 0) {
       throw new BadRequestException('La quantité reçue doit être supérieure à 0');
     }
@@ -44,7 +45,6 @@ export class DetailApprovisionnementService {
       throw new BadRequestException('Le prix unitaire ne peut pas être négatif');
     }
 
-    // Si quantiteTotal n'est pas fourni, on le met égal à quantiteRecu
     const total = quantiteTotal ?? quantiteRecu;
 
     if (total <= 0) {
@@ -64,7 +64,19 @@ export class DetailApprovisionnementService {
 
     const saved = await this.detailApproRepository.save(detailAppro);
 
-    // ✅ METTRE À JOUR L'INVENTAIRE après l'approvisionnement
+    // ✅ CRÉER MOUVEMENT ENTRÉE
+    await this.mouvementService.create({
+      id_materiel: idMateriel,
+      type_mouvement: MouvementType.ENTREE, // ✅ ENTREE au lieu de ENTREE_APPRO
+      quantite_mouvement: quantiteRecu,
+      id_reference: idAppro,
+      type_reference: 'APPROVISIONNEMENT', // ✅ Contexte dans référence
+      prix_unitaire: prixUnitaire,
+      motif: `Approvisionnement - Réception de ${quantiteRecu} unités`,
+      utilisateur: 'system',
+    });
+
+    // Mettre à jour l'inventaire
     try {
       await this.inventaireService.approvisionner(idMateriel, quantiteRecu);
     } catch (err) {
@@ -112,7 +124,6 @@ export class DetailApprovisionnementService {
   ) {
     const detail = await this.findOne(id);
 
-    // Validation
     if (quantiteRecu <= 0) {
       throw new BadRequestException('La quantité reçue doit être supérieure à 0');
     }
@@ -126,7 +137,6 @@ export class DetailApprovisionnementService {
       throw new BadRequestException('La quantité totale doit être supérieure à 0');
     }
 
-    // Calculer la différence pour mettre à jour l'inventaire
     const diffQuantite = quantiteRecu - detail.quantiteRecu;
 
     await this.detailApproRepository.update(id, {
@@ -137,8 +147,23 @@ export class DetailApprovisionnementService {
       quantiteTotal: total,
     });
 
-    // ✅ METTRE À JOUR L'INVENTAIRE si la quantité a changé
+    // ✅ CRÉER MOUVEMENT CORRECTION SI CHANGEMENT
     if (diffQuantite !== 0) {
+      // ✅ Type simplifié + référence explicite
+      const typeMouvement = diffQuantite > 0 ? MouvementType.ENTREE : MouvementType.SORTIE;
+      const typeReference = diffQuantite > 0 ? 'CORRECTION_POSITIVE' : 'CORRECTION_NEGATIVE';
+      
+      await this.mouvementService.create({
+        id_materiel: idMateriel,
+        type_mouvement: typeMouvement, // ✅ ENTREE ou SORTIE
+        quantite_mouvement: Math.abs(diffQuantite),
+        id_reference: idAppro,
+        type_reference: typeReference, // ✅ Contexte dans référence
+        prix_unitaire: prixUnitaire,
+        motif: `Correction approvisionnement - Ajustement de ${diffQuantite > 0 ? '+' : ''}${diffQuantite} unités`,
+        utilisateur: 'system',
+      });
+
       try {
         await this.inventaireService.approvisionner(idMateriel, diffQuantite);
       } catch (err) {
@@ -152,7 +177,18 @@ export class DetailApprovisionnementService {
   async remove(id: string) {
     const detail = await this.findOne(id);
     
-    // ✅ RETIRER DU STOCK LORS DE LA SUPPRESSION
+    // ✅ CRÉER MOUVEMENT CORRECTION NEGATIVE
+    await this.mouvementService.create({
+      id_materiel: detail.materiel.id,
+      type_mouvement: MouvementType.SORTIE, // ✅ SORTIE au lieu de CORRECTION_NEGATIVE
+      quantite_mouvement: detail.quantiteRecu,
+      id_reference: detail.approvisionnement.id,
+      type_reference: 'ANNULATION_APPROVISIONNEMENT', // ✅ Contexte dans référence
+      prix_unitaire: Number(detail.prixUnitaire),
+      motif: `Annulation approvisionnement - Suppression de ${detail.quantiteRecu} unités`,
+      utilisateur: 'system',
+    });
+
     try {
       await this.inventaireService.approvisionner(detail.materiel.id, -detail.quantiteRecu);
     } catch (err) {
@@ -172,7 +208,6 @@ export class DetailApprovisionnementService {
       parTypeMateriel: {}
     };
 
-    // Grouper par type de matériel
     details.forEach(detail => {
       const type = detail.materiel.typeMateriel?.designation || 'Non spécifié';
       if (!stats.parTypeMateriel[type]) {
@@ -200,14 +235,13 @@ export class DetailApprovisionnementService {
     return parseInt(result.total) || 0;
   }
   
-async getTotalQuantiteRecuByMateriel(id_materiel: string): Promise<number> {
-  const result = await this.detailApproRepository
-    .createQueryBuilder('detail')
-    .select('SUM(detail.quantite_recu)', 'total')
-    .where('detail.id_materiel = :id_materiel', { id_materiel })
-    .getRawOne();
-  
-  return parseInt(result.total) || 0;
-}
-
+  async getTotalQuantiteRecuByMateriel(id_materiel: string): Promise<number> {
+    const result = await this.detailApproRepository
+      .createQueryBuilder('detail')
+      .select('SUM(detail.quantite_recu)', 'total')
+      .where('detail.id_materiel = :id_materiel', { id_materiel })
+      .getRawOne();
+    
+    return parseInt(result.total) || 0;
+  }
 }

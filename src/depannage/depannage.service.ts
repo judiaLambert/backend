@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Depannage } from './depannage.entity';
 import { MaterielService } from '../materiel/materiel.service';
+import { MouvementStockService } from '../mouvement_stock/mouvement.service';
+import { MouvementType } from '../mouvement_stock/mouvement.entity'; // ✅ Import
 
 @Injectable()
 export class DepannageService {
@@ -10,6 +12,7 @@ export class DepannageService {
     @InjectRepository(Depannage)
     private depannageRepository: Repository<Depannage>,
     private materielService: MaterielService,
+    private mouvementService: MouvementStockService,
   ) {}
 
   async generateId(): Promise<string> {
@@ -77,7 +80,6 @@ export class DepannageService {
     description_panne: string,
     statut_depannage: string,
   ) {
-    // Validation des données obligatoires
     if (!id_materiel) {
       throw new BadRequestException('Le matériel est obligatoire');
     }
@@ -88,19 +90,16 @@ export class DepannageService {
       throw new BadRequestException('La description de la panne est obligatoire');
     }
 
-    // VÉRIFICATION : Le demandeur existe-t-il vraiment ?
     const demandeurExists = await this.depannageRepository.manager
       .getRepository('Demandeur')
       .findOne({ where: { id_demandeur: id_demandeur } });
     
     if (!demandeurExists) {
       throw new BadRequestException(
-        `Le demandeur avec l'ID "${id_demandeur}" n'existe pas dans la base de données. ` +
-        `Vérifiez que la clé primaire "id_demandeur" est correcte.`
+        `Le demandeur avec l'ID "${id_demandeur}" n'existe pas dans la base de données.`
       );
     }
 
-    // VÉRIFICATION : Le matériel existe-t-il vraiment ?
     const materielExists = await this.depannageRepository.manager
       .getRepository('Materiel')
       .findOne({ where: { id: id_materiel } });
@@ -121,8 +120,6 @@ export class DepannageService {
       description_panne,
       statut_depannage
     });
-    console.log('✅ Demandeur trouvé:', demandeurExists);
-    console.log('✅ Matériel trouvé:', materielExists);
 
     const depannage = this.depannageRepository.create({
       id,
@@ -135,10 +132,19 @@ export class DepannageService {
 
     const savedDepannage = await this.depannageRepository.save(depannage);
     
-    // Mettre à jour l'état du matériel
+    // ✅ CRÉER MOUVEMENT MISE EN PANNE
+    await this.mouvementService.create({
+      id_materiel,
+      type_mouvement: MouvementType.SORTIE, // ✅ SORTIE au lieu de MISE_EN_PANNE
+      quantite_mouvement: 1,
+      id_reference: savedDepannage.id,
+      type_reference: 'MISE_EN_PANNE', // ✅ Contexte dans référence
+      motif: `Mise en panne - ${description_panne}`,
+      utilisateur: 'system',
+    });
+
     await this.updateEtatMateriel(id_materiel, statut_depannage);
     
-    // LOG : Notification pour l'admin
     console.log('🔔 NOTIFICATION ADMIN: Nouveau dépannage signalé', {
       id: savedDepannage.id,
       materiel: materielExists.designation,
@@ -209,14 +215,40 @@ export class DepannageService {
     await this.depannageRepository.update(id, updateFields);
     const updatedDepannage = await this.findOne(id);
 
-    // Si le statut a changé, mettre à jour l'état du matériel
+    // ✅ CRÉER MOUVEMENT si statut change
     if (updateData.statut_depannage && updateData.statut_depannage !== depannage.statut_depannage) {
-      console.log('🔄 STATUT A CHANGÉ - Synchronisation état matériel');
+      console.log('🔄 STATUT A CHANGÉ - Création mouvement');
       const materielId = updateData.id_materiel || depannage.id_materiel;
-      console.log('🎯 Matériel à mettre à jour:', materielId);
+      
+      // Si réparé, créer mouvement RETOUR_REPARATION
+      if (updateData.statut_depannage === 'Résolu') {
+        await this.mouvementService.create({
+          id_materiel: materielId,
+          type_mouvement: MouvementType.ENTREE, // ✅ ENTREE au lieu de RETOUR_REPARATION
+          quantite_mouvement: 1,
+          id_reference: id,
+          type_reference: 'RETOUR_REPARATION', // ✅ Contexte dans référence
+          motif: `Réparation terminée - ${depannage.description_panne}`,
+          utilisateur: 'system',
+        });
+        console.log('✅ Message: Votre matériel est réparé et disponible !');
+      }
+      // Si irréparable, créer mouvement CORRECTION_NEGATIVE
+      else if (updateData.statut_depannage === 'Irréparable') {
+        await this.mouvementService.create({
+          id_materiel: materielId,
+          type_mouvement: MouvementType.SORTIE, // ✅ SORTIE au lieu de CORRECTION_NEGATIVE
+          quantite_mouvement: 1,
+          id_reference: id,
+          type_reference: 'MATERIEL_IRREPARABLE', // ✅ Contexte dans référence
+          motif: `Matériel irréparable - Mise hors service - ${depannage.description_panne}`,
+          utilisateur: 'system',
+        });
+        console.log('❌ Message: Matériel irréparable');
+      }
+      
       await this.updateEtatMateriel(materielId, updateData.statut_depannage);
       
-      // LOG : Notification pour le demandeur
       console.log('🔔 NOTIFICATION DEMANDEUR: Statut dépannage mis à jour', {
         id: id,
         ancien_statut: depannage.statut_depannage,
@@ -224,17 +256,6 @@ export class DepannageService {
         demandeur_id: depannage.id_demandeur,
         materiel: depannage.materiel?.designation
       });
-      
-      // Message spécifique selon le statut
-      if (updateData.statut_depannage === 'Résolu') {
-        console.log('✅ Message: Votre matériel est réparé et disponible !');
-      } else if (updateData.statut_depannage === 'En cours') {
-        console.log('⚙️ Message: Réparation en cours, merci de patienter');
-      } else if (updateData.statut_depannage === 'Irréparable') {
-        console.log('❌ Message: Matériel irréparable, veuillez contacter le service');
-      }
-    } else {
-      console.log('ℹ️ Pas de changement de statut détecté');
     }
 
     console.log('✅ FIN UPDATE');
@@ -243,9 +264,20 @@ export class DepannageService {
 
   async remove(id: string) {
     const depannage = await this.findOne(id);
+    
+    // ✅ CRÉER MOUVEMENT ANNULATION
+    await this.mouvementService.create({
+      id_materiel: depannage.id_materiel,
+      type_mouvement: MouvementType.ENTREE, // ✅ ENTREE au lieu de RETOUR_REPARATION
+      quantite_mouvement: 1,
+      id_reference: id,
+      type_reference: 'ANNULATION_DEPANNAGE', // ✅ Contexte dans référence
+      motif: `Annulation dépannage - Suppression`,
+      utilisateur: 'system',
+    });
+
     const result = await this.depannageRepository.delete(id);
     
-    // Remettre le matériel en "disponible" si le dépannage est supprimé
     await this.updateEtatMateriel(depannage.id_materiel, 'Résolu');
     
     return result;

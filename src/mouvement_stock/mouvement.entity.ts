@@ -1,6 +1,17 @@
 import { Entity, PrimaryColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { Materiel } from '../materiel/materiel.entity';
 
+
+export enum MouvementType {
+  ENTREE = 'ENTREE',
+  SORTIE = 'SORTIE',
+  TRANSFERT = 'TRANSFERT',
+  RESERVATION = 'RESERVATION',
+  DERESERVATION = 'DERESERVATION',
+  AUTRE = 'AUTRE'
+}
+
+
 @Entity('mouvement_stock')
 export class MouvementStock {
   @PrimaryColumn({ name: 'id_mouvement', length: 10 })
@@ -10,11 +21,13 @@ export class MouvementStock {
   @JoinColumn({ name: 'id_materiel' })
   materiel: Materiel;
 
-  @Column({ name: 'type_mouvement', length: 30 })
-  type_mouvement: string; 
-  // 'ENTREE_APPRO', 'SORTIE_ATTRIBUTION', 'RETOUR_ATTRIBUTION', 
-  // 'CORRECTION_POSITIVE', 'CORRECTION_NEGATIVE', 'RESERVATION', 
-  // 'DERESERVATION', 'MISE_EN_PANNE', 'RETOUR_REPARATION'
+  @Column({ 
+    name: 'type_mouvement', 
+    type: 'enum', 
+    enum: MouvementType 
+  })
+  type_mouvement: MouvementType;
+  
 
   @Column({ name: 'quantite_mouvement', type: 'int' })
   quantite_mouvement: number;

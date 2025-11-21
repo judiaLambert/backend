@@ -5,6 +5,8 @@ import { Attribution } from './attribution.entity';
 import { DemandeMateriel } from '../demande_materiel/demande.entity';
 import { DetailDemande } from '../detail_demande/detail.entity';
 import { InventaireService } from '../inventaire/inventaire.service';
+import { MouvementStockService } from '../mouvement_stock/mouvement.service';
+import { MouvementType } from '../mouvement_stock/mouvement.entity'; // ✅ Import
 
 @Injectable()
 export class AttributionService {
@@ -16,6 +18,7 @@ export class AttributionService {
     @InjectRepository(DetailDemande)
     private detailDemandeRepository: Repository<DetailDemande>,
     private inventaireService: InventaireService,
+    private mouvementService: MouvementStockService,
   ) {}
 
   async generateId(): Promise<string> {
@@ -56,7 +59,17 @@ export class AttributionService {
 
     const saved = await this.attributionRepository.save(attribution);
 
-    // Appliquer attribution sur l'inventaire (augmenter réservée, diminuer dispo)
+    // ✅ CRÉER MOUVEMENT SORTIE
+    await this.mouvementService.create({
+      id_materiel,
+      type_mouvement: MouvementType.SORTIE, // ✅ SORTIE au lieu de SORTIE_ATTRIBUTION
+      quantite_mouvement: quantite_attribuee,
+      id_reference: saved.id,
+      type_reference: 'ATTRIBUTION', // ✅ Contexte dans référence
+      motif: motif_attribution || `Attribution à demandeur ${id_demandeur} - En possession`,
+      utilisateur: 'system',
+    });
+
     try {
       await this.inventaireService.appliquerAttribution(id_materiel, quantite_attribuee);
     } catch (err) {
@@ -120,8 +133,18 @@ export class AttributionService {
   async updateStatut(id: string, statut_attribution: string) {
     const attribution = await this.findOne(id);
 
-    // Si retour du matériel, libérer la réservation
+    // ✅ CRÉER MOUVEMENT RETOUR si passage à "Retourné"
     if (statut_attribution === 'Retourné' && attribution.statut_attribution === 'En possession') {
+      await this.mouvementService.create({
+        id_materiel: attribution.materiel.id,
+        type_mouvement: MouvementType.ENTREE, // ✅ ENTREE au lieu de RETOUR_ATTRIBUTION
+        quantite_mouvement: attribution.quantite_attribuee,
+        id_reference: id,
+        type_reference: 'RETOUR_ATTRIBUTION', // ✅ Contexte dans référence
+        motif: `Retour d'attribution - ${attribution.demandeur?.nom || 'Demandeur'}`,
+        utilisateur: 'system',
+      });
+
       try {
         await this.inventaireService.appliquerRetour(
           attribution.materiel.id,
@@ -139,8 +162,18 @@ export class AttributionService {
   async remove(id: string) {
     const attribution = await this.findOne(id);
 
-    // Si en possession, libérer la réservation
+    // ✅ CRÉER MOUVEMENT ANNULATION si en possession
     if (attribution.statut_attribution === 'En possession') {
+      await this.mouvementService.create({
+        id_materiel: attribution.materiel.id,
+        type_mouvement: MouvementType.ENTREE, // ✅ ENTREE au lieu de RETOUR_ATTRIBUTION
+        quantite_mouvement: attribution.quantite_attribuee,
+        id_reference: id,
+        type_reference: 'ANNULATION_ATTRIBUTION', // ✅ Contexte dans référence
+        motif: `Annulation attribution - Suppression`,
+        utilisateur: 'system',
+      });
+
       try {
         await this.inventaireService.appliquerRetour(
           attribution.materiel.id,
@@ -189,7 +222,6 @@ export class AttributionService {
     };
   }
 
-  // ✅ NOUVELLE MÉTHODE : Récupérer les matériels des demandes approuvées
   async getMaterielsDemandesApprouves(id_demandeur: string) {
     const demandesApprouvees = await this.demandeMaterielRepository.find({
       where: {

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
-import { MouvementStock } from './mouvement.entity';
+import { MouvementStock, MouvementType } from './mouvement.entity';
 import { Inventaire } from '../inventaire/inventaire.entity';
 
 @Injectable()
@@ -30,7 +30,7 @@ export class MouvementStockService {
 
   async create(mouvementData: {
     id_materiel: string;
-    type_mouvement: string;
+    type_mouvement: MouvementType;
     quantite_mouvement: number;
     id_reference?: string;
     type_reference?: string;
@@ -43,6 +43,7 @@ export class MouvementStockService {
     // Récupérer le stock actuel
     const inventaire = await this.inventaireRepository.findOne({
       where: { materiel: { id: mouvementData.id_materiel } },
+      relations: ['materiel']
     });
 
     const stock_avant = inventaire?.quantite_stock || 0;
@@ -65,7 +66,7 @@ export class MouvementStockService {
       id_reference: mouvementData.id_reference,
       type_reference: mouvementData.type_reference,
       prix_unitaire: mouvementData.prix_unitaire,
-       valeur_totale: valeur_totale ?? undefined, 
+      valeur_totale: valeur_totale ?? undefined,
       motif: mouvementData.motif,
       utilisateur: mouvementData.utilisateur,
       stock_avant,
@@ -77,18 +78,21 @@ export class MouvementStockService {
 
   private calculateNewStock(
     stock_avant: number,
-    type_mouvement: string,
+    type_mouvement: MouvementType,
     quantite: number,
   ): number {
-    const typesEntree = ['ENTREE_APPRO', 'RETOUR_ATTRIBUTION', 'CORRECTION_POSITIVE', 'RETOUR_REPARATION'];
-    const typesSortie = ['SORTIE_ATTRIBUTION', 'CORRECTION_NEGATIVE', 'MISE_EN_PANNE'];
-
-    if (typesEntree.includes(type_mouvement)) {
-      return stock_avant + quantite;
-    } else if (typesSortie.includes(type_mouvement)) {
-      return stock_avant - quantite;
+    switch (type_mouvement) {
+      case MouvementType.ENTREE:
+        return stock_avant + quantite;
+      case MouvementType.SORTIE:
+        return stock_avant - quantite;
+      case MouvementType.TRANSFERT:
+      case MouvementType.RESERVATION:
+      case MouvementType.DERESERVATION:
+      case MouvementType.AUTRE:
+      default:
+        return stock_avant; // Pas de changement du stock total
     }
-    return stock_avant; // RESERVATION, DERESERVATION ne changent pas le stock total
   }
 
   async findAll() {
@@ -183,7 +187,7 @@ export class MouvementStockService {
   async getEvolutionStock(id_materiel: string) {
     return await this.mouvementRepository.find({
       where: { materiel: { id: id_materiel } },
-      select: ['date_mouvement', 'type_mouvement', 'quantite_mouvement', 'stock_avant', 'stock_apres'],
+      select: ['id', 'date_mouvement', 'type_mouvement', 'quantite_mouvement', 'stock_avant', 'stock_apres', 'type_reference'],
       order: { date_mouvement: 'ASC' },
     });
   }

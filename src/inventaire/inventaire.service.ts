@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Inventaire } from './inventaire.entity';
 import { Materiel, CategorieMateriel } from '../materiel/materiel.entity';
+import { MouvementStockService } from '../mouvement_stock/mouvement.service';
+import { MouvementType } from '../mouvement_stock/mouvement.entity'; // ✅ Import
 
 @Injectable()
 export class InventaireService {
@@ -11,9 +13,9 @@ export class InventaireService {
     private inventaireRepository: Repository<Inventaire>,
     @InjectRepository(Materiel)
     private materielRepository: Repository<Materiel>,
+    private mouvementService: MouvementStockService,
   ) {}
 
-  // ✅ CORRECTION : Utiliser createQueryBuilder
   async generateId(): Promise<string> {
     const lastInventaire = await this.inventaireRepository
       .createQueryBuilder('inventaire')
@@ -30,7 +32,6 @@ export class InventaireService {
     return `INV${newNumber.toString().padStart(3, '0')}`;
   }
 
-  // Créer un inventaire (UNIQUEMENT pour matériel DURABLE)
   async create(
     id_materiel: string,
     quantite_stock: number,
@@ -67,11 +68,25 @@ export class InventaireService {
       emplacement,
     });
 
+    const saved = await this.inventaireRepository.save(inventaire);
+
+    // ✅ CRÉER MOUVEMENT INITIAL
+    if (quantite_stock > 0) {
+      await this.mouvementService.create({
+        id_materiel,
+        type_mouvement: MouvementType.ENTREE, // ✅ ENTREE au lieu de ENTREE_APPRO
+        quantite_mouvement: quantite_stock,
+        id_reference: saved.id,
+        type_reference: 'INVENTAIRE_INITIAL', // ✅ Contexte dans référence
+        motif: `Création inventaire initial - Stock: ${quantite_stock}`,
+        utilisateur: 'system',
+      });
+    }
+
     console.log(`✅ Inventaire créé : ${id} - Stock: ${quantite_stock}`);
-    return await this.inventaireRepository.save(inventaire);
+    return saved;
   }
 
-  // ✅ APPROVISIONNEMENT CORRIGÉ avec logs
   async approvisionner(id_materiel: string, quantite_ajoutee: number) {
     console.log(`\n=== APPROVISIONNEMENT ===`);
     console.log(`Matériel: ${id_materiel}`);
@@ -99,12 +114,10 @@ export class InventaireService {
     console.log(`Stock AVANT: ${inventaire.quantite_stock}`);
     console.log(`Disponible AVANT: ${inventaire.quantite_disponible}`);
 
-    // ✅ CORRECTION : S'assurer que c'est un nombre
     const quantiteAjouter = Number(quantite_ajoutee);
     const stockActuel = Number(inventaire.quantite_stock);
     const dispoActuelle = Number(inventaire.quantite_disponible);
 
-    // Calcul du nouveau stock
     inventaire.quantite_stock = stockActuel + quantiteAjouter;
     inventaire.quantite_disponible = dispoActuelle + quantiteAjouter;
     inventaire.date_dernier_inventaire = new Date();
@@ -118,7 +131,6 @@ export class InventaireService {
     return saved;
   }
 
-  // ATTRIBUTION : Augmenter la quantité réservée, diminuer la quantité disponible
   async appliquerAttribution(id_materiel: string, quantite: number) {
     console.log(`\n=== ATTRIBUTION ===`);
     console.log(`Matériel: ${id_materiel}, Quantité: ${quantite}`);
@@ -163,7 +175,6 @@ export class InventaireService {
     return inventaire;
   }
 
-  // RETOUR DE MATÉRIEL
   async appliquerRetour(id_materiel: string, quantite: number) {
     const inventaire = await this.findByMateriel(id_materiel);
     
@@ -196,7 +207,6 @@ export class InventaireService {
     return inventaire;
   }
 
-  // DÉPANNAGE
   async majDispoSuiteDepannage(
     id_materiel: string, 
     quantite_pannee: number, 
@@ -276,7 +286,26 @@ export class InventaireService {
     
     const updateFields: any = {};
     
+    // ✅ CRÉER MOUVEMENT si quantité stock change
     if (updateData.quantite_stock !== undefined) {
+      const diff = Number(updateData.quantite_stock) - Number(inventaire.quantite_stock);
+      
+      if (diff !== 0) {
+        // ✅ Type simplifié + référence explicite
+        const typeMouvement = diff > 0 ? MouvementType.ENTREE : MouvementType.SORTIE;
+        const typeReference = diff > 0 ? 'CORRECTION_POSITIVE' : 'CORRECTION_NEGATIVE';
+        
+        await this.mouvementService.create({
+          id_materiel: inventaire.materiel.id,
+          type_mouvement: typeMouvement, // ✅ ENTREE ou SORTIE
+          quantite_mouvement: Math.abs(diff),
+          id_reference: id,
+          type_reference: typeReference, // ✅ Contexte dans référence
+          motif: `Ajustement manuel inventaire - ${diff > 0 ? '+' : ''}${diff} unités`,
+          utilisateur: 'system',
+        });
+      }
+      
       updateFields.quantite_stock = Number(updateData.quantite_stock);
       updateFields.quantite_disponible = updateFields.quantite_stock - Number(inventaire.quantite_reservee);
       if (updateFields.quantite_disponible < 0) {
@@ -308,6 +337,20 @@ export class InventaireService {
 
   async remove(id: string) {
     const inventaire = await this.findOne(id);
+    
+    // ✅ CRÉER MOUVEMENT SUPPRESSION
+    if (inventaire.quantite_stock > 0) {
+      await this.mouvementService.create({
+        id_materiel: inventaire.materiel.id,
+        type_mouvement: MouvementType.SORTIE, // ✅ SORTIE au lieu de CORRECTION_NEGATIVE
+        quantite_mouvement: inventaire.quantite_stock,
+        id_reference: id,
+        type_reference: 'SUPPRESSION_INVENTAIRE', // ✅ Contexte dans référence
+        motif: `Suppression inventaire - Retrait de ${inventaire.quantite_stock} unités`,
+        utilisateur: 'system',
+      });
+    }
+    
     return await this.inventaireRepository.delete(id);
   }
 

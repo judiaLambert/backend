@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, BadRequestException } from '@nestjs/common';
 import { MouvementStockService } from './mouvement.service';
+import { MouvementType } from './mouvement.entity'; // ✅ Import
 
 @Controller('mouvement-stock')
 export class MouvementStockController {
@@ -10,11 +11,12 @@ export class MouvementStockController {
     return await this.service.findAll();
   }
 
-@Get('recent')
-async getRecent(@Query('limit') limit?: string) {
-  return await this.service.getMouvementsRecent(
-    limit ? parseInt(limit, 10) : 100
-  );}
+  @Get('recent')
+  async getRecent(@Query('limit') limit?: string) {
+    return await this.service.getMouvementsRecent(
+      limit ? parseInt(limit, 10) : 100
+    );
+  }
 
   @Get('periode')
   async getByPeriod(
@@ -53,7 +55,7 @@ async getRecent(@Query('limit') limit?: string) {
   @Post()
   async create(@Body() body: {
     id_materiel: string;
-    type_mouvement: string;
+    type_mouvement: string; // ✅ On garde string car vient du client
     quantite_mouvement: number;
     id_reference?: string;
     type_reference?: string;
@@ -61,6 +63,16 @@ async getRecent(@Query('limit') limit?: string) {
     motif?: string;
     utilisateur?: string;
   }) {
-    return await this.service.create(body);
+    // ✅ Valider que le type est correct
+    if (!Object.values(MouvementType).includes(body.type_mouvement as MouvementType)) {
+      throw new BadRequestException(
+        `Type de mouvement invalide. Valeurs acceptées: ${Object.values(MouvementType).join(', ')}`
+      );
+    }
+    
+    return await this.service.create({
+      ...body,
+      type_mouvement: body.type_mouvement as MouvementType, // ✅ Cast après validation
+    });
   }
 }

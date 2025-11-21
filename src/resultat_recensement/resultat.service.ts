@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ResultatRecensement } from './resultat.entity';
 import { Inventaire } from '../inventaire/inventaire.entity';
+import { MouvementStockService } from '../mouvement_stock/mouvement.service';
+import { MouvementType } from '../mouvement_stock/mouvement.entity'; // ✅ Import
 
 @Injectable()
 export class ResultatRecensementService {
@@ -11,6 +13,7 @@ export class ResultatRecensementService {
     private resultatRepository: Repository<ResultatRecensement>,
     @InjectRepository(Inventaire)
     private inventaireRepository: Repository<Inventaire>,
+    private mouvementService: MouvementStockService,
   ) {}
 
   async generateId(): Promise<string> {
@@ -37,7 +40,6 @@ export class ResultatRecensementService {
     date_recensement: Date,
     description_ecart?: string,
   ) {
-    // Récupérer la quantité théorique depuis l'inventaire
     const inventaire = await this.inventaireRepository.findOne({
       where: { id: id_inventaire },
       relations: ['materiel'],
@@ -108,7 +110,6 @@ export class ResultatRecensementService {
 
     const dataToUpdate: any = { ...updateData };
 
-    // Recalculer l'écart si quantité physique change
     if (updateData.quantite_physique !== undefined) {
       dataToUpdate.ecart_trouve = updateData.quantite_physique - resultat.quantite_theorique;
     }
@@ -156,15 +157,37 @@ export class ResultatRecensementService {
       throw new BadRequestException('Aucun écart à corriger');
     }
 
+    // ✅ Type simplifié + référence explicite
+    const typeMouvement = resultat.ecart_trouve > 0 
+      ? MouvementType.ENTREE 
+      : MouvementType.SORTIE;
+
+    const typeReference = resultat.ecart_trouve > 0 
+      ? 'CORRECTION_POSITIVE' 
+      : 'CORRECTION_NEGATIVE';
+
+    // ✅ CRÉER MOUVEMENT CORRECTION
+    await this.mouvementService.create({
+      id_materiel: resultat.inventaire.materiel.id,
+      type_mouvement: typeMouvement, // ✅ ENTREE ou SORTIE
+      quantite_mouvement: Math.abs(resultat.ecart_trouve),
+      id_reference: resultat.id,
+      type_reference: typeReference, // ✅ Contexte dans référence
+      motif: resultat.description_ecart || 
+        `Correction suite recensement - ${resultat.ecart_trouve > 0 ? 'surplus' : 'manquant'} de ${Math.abs(resultat.ecart_trouve)} unités`,
+      utilisateur: corrige_par,
+    });
+
     // Mettre à jour l'inventaire
     const nouvelleQuantite = resultat.quantite_physique;
     
     await this.inventaireRepository.update(resultat.inventaire.id, {
       quantite_stock: nouvelleQuantite,
       quantite_disponible: nouvelleQuantite - resultat.inventaire.quantite_reservee,
+      date_dernier_inventaire: new Date(),
+      date_mise_a_jour: new Date(),
     });
 
-    // Enregistrer la traçabilité
     await this.resultatRepository.update(id, {
       statut_correction: 'corrige',
       corrige_par,

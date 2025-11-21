@@ -3,12 +3,14 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { DetailApprovisionnementController } from './detailappro.controller';
 import { DetailApprovisionnementService } from './detailappro.service';
 import { DetailApprovisionnement } from './detailappro.entity';
-import { InventaireModule } from '../inventaire/inventaire.module'; // ← IMPORTER
+import { InventaireModule } from '../inventaire/inventaire.module';
+import { MouvementStockModule } from '../mouvement_stock/mouvement.module'; // ✅
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([DetailApprovisionnement]),
-    InventaireModule, // ← AJOUTER pour pouvoir utiliser InventaireService
+    InventaireModule,
+    MouvementStockModule, // ✅
   ],
   controllers: [DetailApprovisionnementController],
   providers: [DetailApprovisionnementService],
