@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { MouvementStock, MouvementType } from './mouvement.entity';
 import { Inventaire } from '../inventaire/inventaire.entity';
+import { JournalService } from '../journal/journal.service';
 
 @Injectable()
 export class MouvementStockService {
@@ -11,6 +12,7 @@ export class MouvementStockService {
     private mouvementRepository: Repository<MouvementStock>,
     @InjectRepository(Inventaire)
     private inventaireRepository: Repository<Inventaire>,
+    private journalService: JournalService,
   ) {}
 
   async generateId(): Promise<string> {
@@ -73,7 +75,32 @@ export class MouvementStockService {
       stock_apres,
     });
 
-    return await this.mouvementRepository.save(mouvement);
+    // ✅ 1. Sauvegarder le mouvement
+    const savedMouvement = await this.mouvementRepository.save(mouvement);
+    console.log(`✅ Mouvement créé : ${savedMouvement.id}`);
+
+    // ✅ 2. CRÉER AUTOMATIQUEMENT UNE ENTRÉE JOURNAL
+    try {
+      // Recharger le mouvement avec toutes les relations pour le journal
+      const mouvementComplet = await this.mouvementRepository.findOne({
+        where: { id: savedMouvement.id },
+        relations: ['materiel', 'materiel.typeMateriel'],
+      });
+
+      if (mouvementComplet) {
+        const journal = await this.journalService.createFromMouvement(mouvementComplet);
+        console.log(`✅ Journal créé automatiquement : ${journal.id_journal} pour mouvement ${mouvementComplet.id}`);
+      } else {
+        console.warn(`⚠️ Mouvement ${savedMouvement.id} non trouvé pour créer le journal`);
+      }
+    } catch (error) {
+      console.error(`❌ Erreur lors de la création du journal pour le mouvement ${savedMouvement.id}:`, error);
+      // On ne bloque pas la création du mouvement si le journal échoue
+      // Le mouvement est déjà créé, on log juste l'erreur
+    }
+
+    // ✅ 3. Retourner le mouvement sauvegardé
+    return savedMouvement;
   }
 
   private calculateNewStock(
@@ -91,8 +118,8 @@ export class MouvementStockService {
       case MouvementType.DERESERVATION:
       case MouvementType.AUTRE:
       default:
-        return stock_avant; // Pas de changement du stock total
-    }
+        return stock_avant;
+    }  
   }
 
   async findAll() {
@@ -139,7 +166,6 @@ export class MouvementStockService {
   async getStatistiques() {
     const totalMouvements = await this.mouvementRepository.count();
 
-    // Mouvements par type
     const mouvementsParType = await this.mouvementRepository
       .createQueryBuilder('mouvement')
       .select('mouvement.type_mouvement', 'type')
@@ -148,13 +174,11 @@ export class MouvementStockService {
       .groupBy('mouvement.type_mouvement')
       .getRawMany();
 
-    // Valeur totale des mouvements
     const valeurTotale = await this.mouvementRepository
       .createQueryBuilder('mouvement')
       .select('SUM(mouvement.valeur_totale)', 'total')
       .getRawOne();
 
-    // Mouvements du jour
     const aujourd_hui = new Date();
     aujourd_hui.setHours(0, 0, 0, 0);
     const mouvementsDuJour = await this.mouvementRepository.count({
@@ -163,7 +187,6 @@ export class MouvementStockService {
       },
     });
 
-    // Top 5 matériels avec le plus de mouvements
     const topMateriels = await this.mouvementRepository
       .createQueryBuilder('mouvement')
       .leftJoinAndSelect('mouvement.materiel', 'materiel')
