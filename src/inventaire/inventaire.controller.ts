@@ -1,43 +1,10 @@
-import { Controller, Get, Post, Put, Delete, Param, Body } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, BadRequestException } from '@nestjs/common';
 import { InventaireService } from './inventaire.service';
 
 @Controller('inventaire')
 export class InventaireController {
   constructor(private readonly inventaireService: InventaireService) {}
 
-  // ⚠️ IMPORTANT : Les routes spécifiques DOIVENT être AVANT les routes avec paramètres génériques
-
-  // Récupérer les alertes de stock bas
-  @Get('alertes/stock-bas')
-  async getAlertesStockBas() {
-    return await this.inventaireService.getAlertesStockBas();
-  }
-
-  // Récupérer les statistiques d'inventaire
-  @Get('stats/statistiques')
-  async getStatistiques() {
-    return await this.inventaireService.getStatistiques();
-  }
-
-  // Récupérer l'inventaire d'un matériel spécifique
-  @Get('materiel/:id_materiel')
-  async getByMateriel(@Param('id_materiel') id_materiel: string) {
-    return await this.inventaireService.findByMateriel(id_materiel);
-  }
-
-  // Récupérer tous les inventaires
-  @Get()
-  async getAll() {
-    return await this.inventaireService.findAll();
-  }
-
-  // Récupérer un inventaire par ID (DOIT être après les routes spécifiques)
-  @Get(':id')
-  async getOne(@Param('id') id: string) {
-    return await this.inventaireService.findOne(id);
-  }
-
-  // Créer un nouvel inventaire (seulement pour matériel durable)
   @Post()
   async create(@Body() body: {
     id_materiel: string;
@@ -45,6 +12,9 @@ export class InventaireController {
     seuil_alerte: number;
     emplacement: string;
   }) {
+    if (!body.id_materiel || body.quantite_stock === undefined || body.seuil_alerte === undefined) {
+      throw new BadRequestException('Tous les champs sont obligatoires');
+    }
     return await this.inventaireService.create(
       body.id_materiel,
       body.quantite_stock,
@@ -53,69 +23,44 @@ export class InventaireController {
     );
   }
 
-  // Approvisionner un matériel (ajouter du stock)
-  @Post('materiel/:id_materiel/approvisionner')
-  async approvisionner(
-    @Param('id_materiel') id_materiel: string,
-    @Body() body: { quantite: number },
-  ) {
-    return await this.inventaireService.approvisionner(id_materiel, body.quantite);
+  @Get()
+  async findAll() {
+    return await this.inventaireService.findAll();
   }
 
-  // Appliquer une attribution (réserver du matériel)
-  @Post('materiel/:id_materiel/attribution')
-  async appliquerAttribution(
-    @Param('id_materiel') id_materiel: string,
-    @Body() body: { quantite: number },
-  ) {
-    return await this.inventaireService.appliquerAttribution(id_materiel, body.quantite);
+  @Get('statistiques')
+  async getStatistiques() {
+    return await this.inventaireService.getStatistiques();
   }
 
-  // Appliquer un retour de matériel (libérer une réservation)
-  @Post('materiel/:id_materiel/retour')
-  async appliquerRetour(
-    @Param('id_materiel') id_materiel: string,
-    @Body() body: { quantite: number },
-  ) {
-    return await this.inventaireService.appliquerRetour(id_materiel, body.quantite);
+  @Get('alertes')
+  async getAlertesStockBas() {
+    return await this.inventaireService.getAlertesStockBas();
   }
 
-  // Mettre à jour la disponibilité suite à un dépannage
-  @Post('materiel/:id_materiel/depannage')
-  async majDispoSuiteDepannage(
-    @Param('id_materiel') id_materiel: string,
-    @Body() body: { 
-      quantite_pannee: number;
-      nouveau_statut: string;
-      ancien_statut?: string;
-    },
-  ) {
-    return await this.inventaireService.majDispoSuiteDepannage(
-      id_materiel,
-      body.quantite_pannee,
-      body.nouveau_statut,
-      body.ancien_statut,
-    );
+  @Get('materiel/:id_materiel')
+  async getByMateriel(@Param('id_materiel') id_materiel: string) {
+    return await this.inventaireService.findByMateriel(id_materiel);
   }
 
-  // Mettre à jour un inventaire
+  @Get(':id')
+  async findOne(@Param('id') id: string) {
+    return await this.inventaireService.findOne(id);
+  }
+
   @Put(':id')
-  async update(
-    @Param('id') id: string,
-    @Body() body: {
-      quantite_stock?: number;
-      quantite_reservee?: number;
-      seuil_alerte?: number;
-      emplacement?: string;
-    },
-  ) {
+  async update(@Param('id') id: string, @Body() body: {
+    quantite_stock?: number;
+    quantite_reservee?: number;
+    seuil_alerte?: number;
+    emplacement?: string;
+  }) {
     return await this.inventaireService.update(id, body);
   }
 
-  // Supprimer un inventaire
   @Delete(':id')
-  async delete(@Param('id') id: string) {
-    await this.inventaireService.remove(id);
-    return { message: 'Inventaire supprimé avec succès' };
+  async remove(@Param('id') id: string) {
+    return await this.inventaireService.remove(id);
   }
+
 }

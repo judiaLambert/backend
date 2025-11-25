@@ -23,6 +23,7 @@ import { TypeComptabiliteModule } from './type_comptabilite/typecompta.module';
 import { CommissionModule } from './commission_recensement/commission.module';
 import { ResultatRecensementModule } from './resultat_recensement/resultat.module';
 import { JournalModule } from './journal/journal.module';
+import { RedditionAnnuelleModule } from './reddition_annuelle/reddition.module';
 
 @Module({
   imports: [connexionModule, TypeDepartementModule,
@@ -31,7 +32,7 @@ import { JournalModule } from './journal/journal.module';
     AcquisitionModule,ApprovisionnementModule,DetailApprovisionnementModule,
     DemandeModule,DetailDemandeModule,AttributionModule,DepannageModule,
     InventaireModule,MouvementStockModule,AuthModule,TypeComptabiliteModule,
-  CommissionModule,ResultatRecensementModule,JournalModule],
+  CommissionModule,ResultatRecensementModule,JournalModule,RedditionAnnuelleModule],
   controllers: [AppController],
   providers: [AppService],
 })

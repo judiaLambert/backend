@@ -5,12 +5,13 @@ import { DepannageService } from './depannage.service';
 import { Depannage } from './depannage.entity';
 import { MaterielModule } from '../materiel/materiel.module';
 import { MouvementStockModule } from '../mouvement_stock/mouvement.module'; 
+import { InventaireModule } from '../inventaire/inventaire.module'; 
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Depannage]),
     MaterielModule,
-    MouvementStockModule, 
+    MouvementStockModule, InventaireModule,
   ],
   controllers: [DepannageController],
   providers: [DepannageService],
