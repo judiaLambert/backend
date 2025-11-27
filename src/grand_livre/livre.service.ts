@@ -3,9 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { GrandLivre } from './livre.entity';
 import { Journal, StatutValidation } from '../journal/journal.entity';
-import { GenerationDetail, GenerationResult } from './livre.types'; 
-
-
+import { GenerationDetail, GenerationResult } from './livre.types';
 
 @Injectable()
 export class GrandLivreService {
@@ -34,13 +32,8 @@ export class GrandLivreService {
   async createFromJournal(journal: Journal): Promise<GrandLivre> {
     const id_grand_livre = await this.generateId();
 
-    const id_type_materiel = journal.mouvement.materiel.typeMateriel?.id;
-    
-    if (!id_type_materiel) {
-      throw new Error(`Le matériel ${journal.mouvement.materiel.id} n'a pas de type de matériel défini`);
-    }
-
-    const derniereSolde = await this.getDernierSolde(id_type_materiel);
+    // ✅ Récupérer le dernier solde global (pas par type)
+    const derniereSolde = await this.getDernierSolde();
 
     const isEntree = journal.mouvement.type_mouvement === 'ENTREE';
     const quantite = journal.mouvement.quantite_mouvement;
@@ -57,7 +50,6 @@ export class GrandLivreService {
     const grandLivre = this.grandLivreRepository.create({
       id_grand_livre,
       id_journal: journal.id_journal,
-      id_type_materiel,
       quantite_entree,
       quantite_sortie,
       valeur_entree,
@@ -68,13 +60,14 @@ export class GrandLivreService {
     });
 
     const saved = await this.grandLivreRepository.save(grandLivre);
-    console.log(`✅ Grand livre créé : ${saved.id_grand_livre} pour journal ${journal.id_journal} (Type: ${id_type_materiel})`);
+    console.log(`✅ Grand livre créé : ${saved.id_grand_livre} pour journal ${journal.id_journal}`);
     return saved;
   }
 
-  async getDernierSolde(id_type_materiel: string): Promise<{ quantite: number; valeur: number }> {
+  // ✅ Récupérer le dernier solde GLOBAL (sans filtrer par type)
+  async getDernierSolde(): Promise<{ quantite: number; valeur: number }> {
     const derniereEntree = await this.grandLivreRepository.findOne({
-      where: { id_type_materiel },
+      where: {},
       order: { date_enregistrement: 'DESC' },
     });
 
@@ -90,7 +83,7 @@ export class GrandLivreService {
 
   async findAll() {
     return await this.grandLivreRepository.find({
-      relations: ['journal', 'journal.mouvement', 'typeMateriel'],
+      relations: ['journal', 'journal.mouvement', 'journal.mouvement.materiel'],
       order: { date_enregistrement: 'DESC' },
     });
   }
@@ -98,7 +91,7 @@ export class GrandLivreService {
   async findOne(id_grand_livre: string) {
     const entry = await this.grandLivreRepository.findOne({
       where: { id_grand_livre },
-      relations: ['journal', 'journal.mouvement', 'typeMateriel'],
+      relations: ['journal', 'journal.mouvement', 'journal.mouvement.materiel'],
     });
 
     if (!entry) {
@@ -108,28 +101,19 @@ export class GrandLivreService {
     return entry;
   }
 
-  async findByTypeMateriel(id_type_materiel: string) {
-    return await this.grandLivreRepository.find({
-      where: { id_type_materiel },
-      relations: ['journal', 'journal.mouvement', 'typeMateriel'],
-      order: { date_enregistrement: 'ASC' },
-    });
-  }
-
   async findByPeriode(dateDebut: Date, dateFin: Date) {
     return await this.grandLivreRepository.find({
       where: {
         date_enregistrement: Between(dateDebut, dateFin),
       },
-      relations: ['journal', 'journal.mouvement', 'typeMateriel'],
-      order: { date_enregistrement: 'DESC' },
+      relations: ['journal', 'journal.mouvement', 'journal.mouvement.materiel'],
+      order: { date_enregistrement: 'ASC' },
     });
   }
 
-  async getSoldeActuel(id_type_materiel: string) {
-    const solde = await this.getDernierSolde(id_type_materiel);
+  async getSoldeActuel() {
+    const solde = await this.getDernierSolde();
     return {
-      id_type_materiel,
       quantite_restante: solde.quantite,
       valeur_restante: solde.valeur,
     };
@@ -179,32 +163,6 @@ export class GrandLivreService {
       soldeValeur: (parseFloat(valeurTotaleEntrees.total) || 0) - (parseFloat(valeurTotaleSorties.total) || 0),
       entreesAujourdhui,
     };
-  }
-
-  async getSoldesParTypeMateriel() {
-    const result = await this.grandLivreRepository
-      .createQueryBuilder('gl')
-      .leftJoinAndSelect('gl.typeMateriel', 'typeMateriel')
-      .select('typeMateriel.id', 'id_type_materiel')
-      .addSelect('typeMateriel.designation', 'designation')
-      .addSelect('SUM(gl.quantite_entree)', 'total_entrees')
-      .addSelect('SUM(gl.quantite_sortie)', 'total_sorties')
-      .addSelect('SUM(gl.valeur_entree)', 'valeur_entrees')
-      .addSelect('SUM(gl.valeur_sortie)', 'valeur_sorties')
-      .groupBy('typeMateriel.id')
-      .addGroupBy('typeMateriel.designation')
-      .getRawMany();
-
-    return result.map((item) => ({
-      id_type_materiel: item.id_type_materiel,
-      designation: item.designation,
-      total_entrees: parseInt(item.total_entrees) || 0,
-      total_sorties: parseInt(item.total_sorties) || 0,
-      solde_quantite: (parseInt(item.total_entrees) || 0) - (parseInt(item.total_sorties) || 0),
-      valeur_entrees: parseFloat(item.valeur_entrees) || 0,
-      valeur_sorties: parseFloat(item.valeur_sorties) || 0,
-      solde_valeur: (parseFloat(item.valeur_entrees) || 0) - (parseFloat(item.valeur_sorties) || 0),
-    }));
   }
 
   async genererGrandLivrePourPeriode(dateDebut: Date, dateFin: Date): Promise<GenerationResult> {

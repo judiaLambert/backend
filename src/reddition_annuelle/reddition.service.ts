@@ -35,16 +35,6 @@ export class RedditionAnnuelleService {
   async genererRedditionAutomatique(annee: number): Promise<GenerationRedditionResult> {
     console.log(`📊 Génération automatique des redditions pour l'année ${annee}`);
 
-    const existantes = await this.redditionRepository.count({
-      where: { annee_validation: annee },
-    });
-
-    if (existantes > 0) {
-      throw new BadRequestException(
-        `Des redditions existent déjà pour l'année ${annee}. Total: ${existantes}`
-      );
-    }
-
     const result: GenerationRedditionResult = {
       total: 0,
       crees: 0,
@@ -52,53 +42,33 @@ export class RedditionAnnuelleService {
       details: [],
     };
 
-    const typesMateriels = await this.grandLivreRepository
-      .createQueryBuilder('gl')
-      .leftJoinAndSelect('gl.typeMateriel', 'tm')
-      .select('tm.id', 'id_type_materiel')
-      .addSelect('tm.designation', 'designation')
-      .addSelect('MAX(gl.date_enregistrement)', 'derniere_date')
-      .groupBy('tm.id')
-      .addGroupBy('tm.designation')
-      .getRawMany();
+    // ✅ Récupérer tous les inventaires (un par matériel)
+    const inventaires = await this.inventaireRepository.find({
+      relations: ['materiel', 'materiel.typeMateriel'],
+    });
 
-    console.log(`✅ ${typesMateriels.length} types de matériels trouvés`);
-    result.total = typesMateriels.length;
+    console.log(`✅ ${inventaires.length} inventaires trouvés`);
+    result.total = inventaires.length;
 
-    for (const type of typesMateriels) {
+    for (const inventaire of inventaires) {
       try {
+        // ✅ Trouver la dernière entrée du grand livre pour ce matériel
         const dernierGrandLivre = await this.grandLivreRepository.findOne({
-          where: { id_type_materiel: type.id_type_materiel },
+          where: {},
+          relations: ['journal', 'journal.mouvement', 'journal.mouvement.materiel'],
           order: { date_enregistrement: 'DESC' },
         });
 
         if (!dernierGrandLivre) {
-          throw new Error(`Aucun grand livre trouvé pour le type ${type.designation}`);
+          throw new Error(`Aucun grand livre trouvé`);
         }
-
-        // ✅ CORRECTION : Utiliser id_typemateriel (sans underscore entre type et materiel)
-        const inventaires = await this.inventaireRepository
-          .createQueryBuilder('inventaire')
-          .leftJoinAndSelect('inventaire.materiel', 'materiel')
-          .where('materiel.id_typemateriel = :id_type_materiel', { 
-            id_type_materiel: type.id_type_materiel 
-          })
-          .getMany();
-
-        if (inventaires.length === 0) {
-          throw new Error(`Aucun inventaire trouvé pour le type ${type.designation}`);
-        }
-
-        const inventairePrincipal = inventaires.reduce((prev, current) => 
-          (current.quantite_stock > prev.quantite_stock) ? current : prev
-        );
 
         const id_reddition = await this.generateId();
         const reddition = this.redditionRepository.create({
           id_reddition,
           annee_validation: annee,
           id_grand_livre: dernierGrandLivre.id_grand_livre,
-          id_inventaire: inventairePrincipal.id,
+          id_inventaire: inventaire.id,
           statut: StatutReddition.EN_ATTENTE,
         });
 
@@ -107,17 +77,17 @@ export class RedditionAnnuelleService {
         result.crees++;
         result.details.push({
           id_reddition,
-          type_materiel: type.designation,
+          materiel: inventaire.materiel?.designation,
           status: 'créé',
         });
 
-        console.log(`✅ Reddition créée : ${id_reddition} pour ${type.designation}`);
+        console.log(`✅ Reddition créée : ${id_reddition} pour ${inventaire.materiel?.designation}`);
 
       } catch (error) {
-        console.error(`❌ Erreur pour ${type.designation}:`, error);
+        console.error(`❌ Erreur pour ${inventaire.materiel?.designation}:`, error);
         result.erreurs++;
         result.details.push({
-          type_materiel: type.designation,
+          materiel: inventaire.materiel?.designation,
           status: 'erreur',
           message: error.message,
         });
@@ -130,7 +100,7 @@ export class RedditionAnnuelleService {
 
   async findAll() {
     return await this.redditionRepository.find({
-      relations: ['grandLivre', 'grandLivre.typeMateriel', 'inventaire', 'inventaire.materiel'],
+      relations: ['grandLivre', 'grandLivre.journal', 'grandLivre.journal.mouvement', 'grandLivre.journal.mouvement.materiel', 'inventaire', 'inventaire.materiel'],
       order: { date_creation: 'DESC' },
     });
   }
@@ -138,7 +108,7 @@ export class RedditionAnnuelleService {
   async findOne(id_reddition: string) {
     const reddition = await this.redditionRepository.findOne({
       where: { id_reddition },
-      relations: ['grandLivre', 'grandLivre.typeMateriel', 'inventaire', 'inventaire.materiel'],
+      relations: ['grandLivre', 'grandLivre.journal', 'grandLivre.journal.mouvement', 'grandLivre.journal.mouvement.materiel', 'inventaire', 'inventaire.materiel'],
     });
 
     if (!reddition) {
@@ -151,7 +121,7 @@ export class RedditionAnnuelleService {
   async findByAnnee(annee: number) {
     return await this.redditionRepository.find({
       where: { annee_validation: annee },
-      relations: ['grandLivre', 'grandLivre.typeMateriel', 'inventaire', 'inventaire.materiel'],
+      relations: ['grandLivre', 'grandLivre.journal', 'grandLivre.journal.mouvement', 'grandLivre.journal.mouvement.materiel', 'inventaire', 'inventaire.materiel'],
       order: { date_creation: 'DESC' },
     });
   }
@@ -159,7 +129,7 @@ export class RedditionAnnuelleService {
   async findByStatut(statut: StatutReddition) {
     return await this.redditionRepository.find({
       where: { statut },
-      relations: ['grandLivre', 'grandLivre.typeMateriel', 'inventaire', 'inventaire.materiel'],
+      relations: ['grandLivre', 'grandLivre.journal', 'grandLivre.journal.mouvement', 'grandLivre.journal.mouvement.materiel', 'inventaire', 'inventaire.materiel'],
       order: { date_creation: 'DESC' },
     });
   }
@@ -258,7 +228,7 @@ export class RedditionAnnuelleService {
         date_enregistrement: reddition.grandLivre.date_enregistrement,
         quantite_restante: reddition.grandLivre.quantite_restante,
         valeur_restante: reddition.grandLivre.valeur_restante,
-        type_materiel: reddition.grandLivre.typeMateriel?.designation,
+        materiel: reddition.grandLivre.journal?.mouvement?.materiel?.designation,
       } : null,
       inventaire: reddition.inventaire ? {
         id_inventaire: reddition.inventaire.id,

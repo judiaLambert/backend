@@ -3,8 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ResultatRecensement } from './resultat.entity';
 import { Inventaire } from '../inventaire/inventaire.entity';
+import { DetailApprovisionnement } from '../detail_approvisionnement/detailappro.entity';
 import { MouvementStockService } from '../mouvement_stock/mouvement.service';
-import { MouvementType } from '../mouvement_stock/mouvement.entity'; // ✅ Import
+import { MouvementType } from '../mouvement_stock/mouvement.entity';
 
 @Injectable()
 export class ResultatRecensementService {
@@ -13,6 +14,8 @@ export class ResultatRecensementService {
     private resultatRepository: Repository<ResultatRecensement>,
     @InjectRepository(Inventaire)
     private inventaireRepository: Repository<Inventaire>,
+    @InjectRepository(DetailApprovisionnement)
+    private detailApproRepository: Repository<DetailApprovisionnement>,
     private mouvementService: MouvementStockService,
   ) {}
 
@@ -32,6 +35,17 @@ export class ResultatRecensementService {
     return `RES${newNumber.toString().padStart(3, '0')}`;
   }
 
+  // ✅ Récupérer le prix unitaire depuis le dernier approvisionnement
+  async getPrixUnitaireSysteme(id_materiel: string): Promise<number> {
+    const detailAppro = await this.detailApproRepository.findOne({
+      where: { materiel: { id: id_materiel } },
+      relations: ['approvisionnement'],
+    
+    });
+
+    return detailAppro?.prixUnitaire || 0;
+  }
+
   async create(
     id_commission: string,
     id_inventaire: string,
@@ -39,6 +53,7 @@ export class ResultatRecensementService {
     type_recensement: string,
     date_recensement: Date,
     description_ecart?: string,
+    pu_recensement?: number, // Optionnel : PU constaté lors du recensement
   ) {
     const inventaire = await this.inventaireRepository.findOne({
       where: { id: id_inventaire },
@@ -52,6 +67,16 @@ export class ResultatRecensementService {
     const quantite_theorique = inventaire.quantite_stock;
     const ecart_trouve = quantite_physique - quantite_theorique;
 
+    // ✅ Récupérer le PU système depuis détail appro
+    const pu_systeme = await this.getPrixUnitaireSysteme(inventaire.materiel.id);
+    
+    // ✅ PU recensement = PU système si non fourni
+    const pu_rec = pu_recensement || pu_systeme;
+
+    // ✅ Calcul des valeurs
+    const valeur_systeme = quantite_theorique * pu_systeme;
+    const valeur_recensement = quantite_physique * pu_rec;
+
     const id = await this.generateId();
 
     const resultat = this.resultatRepository.create({
@@ -61,6 +86,10 @@ export class ResultatRecensementService {
       quantite_theorique,
       quantite_physique,
       ecart_trouve,
+      pu_systeme,
+      pu_recensement: pu_rec,
+      valeur_systeme,
+      valeur_recensement,
       description_ecart,
       type_recensement,
       date_recensement,
@@ -70,12 +99,20 @@ export class ResultatRecensementService {
     return await this.resultatRepository.save(resultat);
   }
 
-  async findAll() {
-    return await this.resultatRepository.find({
-      relations: ['commission', 'inventaire', 'inventaire.materiel', 'inventaire.materiel.typeMateriel'],
-      order: { date_recensement: 'DESC' },
-    });
-  }
+async findAll() {
+  const resultats = await this.resultatRepository.find({
+    relations: [
+      'commission',
+      'inventaire',
+      'inventaire.materiel',
+      'inventaire.materiel.typeMateriel',
+    ],
+    order: { date_recensement: 'DESC' },
+  });
+
+  // ✅ Les PU sont déjà dans la BDD, pas besoin de requête supplémentaire
+  return resultats;
+}
 
   async findOne(id: string) {
     const resultat = await this.resultatRepository.findOne({
@@ -104,6 +141,7 @@ export class ResultatRecensementService {
       quantite_physique?: number;
       description_ecart?: string;
       statut_correction?: string;
+      pu_recensement?: number;
     },
   ) {
     const resultat = await this.findOne(id);
@@ -112,6 +150,14 @@ export class ResultatRecensementService {
 
     if (updateData.quantite_physique !== undefined) {
       dataToUpdate.ecart_trouve = updateData.quantite_physique - resultat.quantite_theorique;
+      
+      // Recalculer valeur_recensement
+      const pu = updateData.pu_recensement || resultat.pu_recensement;
+      dataToUpdate.valeur_recensement = updateData.quantite_physique * pu;
+    }
+
+    if (updateData.pu_recensement !== undefined && resultat.quantite_physique) {
+      dataToUpdate.valeur_recensement = resultat.quantite_physique * updateData.pu_recensement;
     }
 
     await this.resultatRepository.update(id, dataToUpdate);
@@ -157,7 +203,6 @@ export class ResultatRecensementService {
       throw new BadRequestException('Aucun écart à corriger');
     }
 
-    // ✅ Type simplifié + référence explicite
     const typeMouvement = resultat.ecart_trouve > 0 
       ? MouvementType.ENTREE 
       : MouvementType.SORTIE;
@@ -166,13 +211,13 @@ export class ResultatRecensementService {
       ? 'CORRECTION_POSITIVE' 
       : 'CORRECTION_NEGATIVE';
 
-    // ✅ CRÉER MOUVEMENT CORRECTION
+    // Créer mouvement correction
     await this.mouvementService.create({
       id_materiel: resultat.inventaire.materiel.id,
-      type_mouvement: typeMouvement, // ✅ ENTREE ou SORTIE
+      type_mouvement: typeMouvement,
       quantite_mouvement: Math.abs(resultat.ecart_trouve),
       id_reference: resultat.id,
-      type_reference: typeReference, // ✅ Contexte dans référence
+      type_reference: typeReference,
       motif: resultat.description_ecart || 
         `Correction suite recensement - ${resultat.ecart_trouve > 0 ? 'surplus' : 'manquant'} de ${Math.abs(resultat.ecart_trouve)} unités`,
       utilisateur: corrige_par,

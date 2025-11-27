@@ -24,6 +24,20 @@ export class ResultatRecensement {
   @Column({ name: 'ecart_trouve', type: 'int' })
   ecart_trouve: number;
 
+  // ✅ Prix unitaires
+  @Column({ name: 'pu_systeme', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  pu_systeme: number;
+
+  @Column({ name: 'pu_recensement', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  pu_recensement: number;
+
+  // ✅ Valeurs calculées
+  @Column({ name: 'valeur_systeme', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  valeur_systeme: number;
+
+  @Column({ name: 'valeur_recensement', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  valeur_recensement: number;
+
   @Column({ name: 'description_ecart', type: 'text', nullable: true })
   description_ecart: string;
 

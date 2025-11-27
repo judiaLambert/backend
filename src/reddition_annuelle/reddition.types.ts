@@ -1,6 +1,6 @@
 export interface GenerationRedditionDetail {
   id_reddition?: string;
-  type_materiel?: string;
+  materiel?: string; // ✅ Changé de type_materiel à materiel
   status: 'créé' | 'erreur';
   message?: string;
 }

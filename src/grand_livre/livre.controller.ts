@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Param, Query, BadRequestException, Body } from '@nestjs/common';
 import { GrandLivreService } from './livre.service';
-import { GenerationResult } from './livre.types'; 
+import { GenerationResult } from './livre.types';
 
 @Controller('grand-livre')
 export class GrandLivreController {
@@ -16,19 +16,9 @@ export class GrandLivreController {
     return await this.grandLivreService.getStatistiques();
   }
 
-  @Get('soldes')
-  async getSoldesParTypeMateriel() {
-    return await this.grandLivreService.getSoldesParTypeMateriel();
-  }
-
-  @Get('type-materiel/:id_type_materiel')
-  async getByTypeMateriel(@Param('id_type_materiel') id_type_materiel: string) {
-    return await this.grandLivreService.findByTypeMateriel(id_type_materiel);
-  }
-
-  @Get('type-materiel/:id_type_materiel/solde')
-  async getSoldeActuel(@Param('id_type_materiel') id_type_materiel: string) {
-    return await this.grandLivreService.getSoldeActuel(id_type_materiel);
+  @Get('solde-actuel')
+  async getSoldeActuel() {
+    return await this.grandLivreService.getSoldeActuel();
   }
 
   @Get('periode')
@@ -48,17 +38,17 @@ export class GrandLivreController {
   }
 
   @Post('generer/mois-courant')
-  async genererMoisCourant(): Promise<GenerationResult> { // ✅ Typage explicite
+  async genererMoisCourant(): Promise<GenerationResult> {
     return await this.grandLivreService.genererGrandLivreMoisCourant();
   }
 
   @Post('generer/annee-courante')
-  async genererAnneeCourante(): Promise<GenerationResult> { // ✅ Typage explicite
+  async genererAnneeCourante(): Promise<GenerationResult> {
     return await this.grandLivreService.genererGrandLivreAnneeCourante();
   }
 
   @Post('generer/mois')
-  async genererMois(@Body() body: { annee: number; mois: number }): Promise<GenerationResult> { // ✅ Typage explicite
+  async genererMois(@Body() body: { annee: number; mois: number }): Promise<GenerationResult> {
     if (!body.annee || !body.mois) {
       throw new BadRequestException('Année et mois sont obligatoires');
     }
@@ -69,7 +59,7 @@ export class GrandLivreController {
   }
 
   @Post('generer/annee')
-  async genererAnnee(@Body() body: { annee: number }): Promise<GenerationResult> { // ✅ Typage explicite
+  async genererAnnee(@Body() body: { annee: number }): Promise<GenerationResult> {
     if (!body.annee) {
       throw new BadRequestException('Année est obligatoire');
     }
@@ -77,7 +67,7 @@ export class GrandLivreController {
   }
 
   @Post('generer/periode')
-  async genererPeriode(@Body() body: { dateDebut: string; dateFin: string }): Promise<GenerationResult> { // ✅ Typage explicite
+  async genererPeriode(@Body() body: { dateDebut: string; dateFin: string }): Promise<GenerationResult> {
     if (!body.dateDebut || !body.dateFin) {
       throw new BadRequestException('Les dates de début et de fin sont obligatoires');
     }

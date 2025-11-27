@@ -35,6 +35,7 @@ export class ResultatRecensementController {
       type_recensement: string;
       date_recensement: string;
       description_ecart?: string;
+      pu_recensement?: number; // ✅ Optionnel
     },
   ) {
     return await this.service.create(
@@ -44,6 +45,7 @@ export class ResultatRecensementController {
       body.type_recensement,
       new Date(body.date_recensement),
       body.description_ecart,
+      body.pu_recensement, // ✅ Passé au service
     );
   }
 
@@ -55,6 +57,7 @@ export class ResultatRecensementController {
       quantite_physique?: number;
       description_ecart?: string;
       statut_correction?: string;
+      pu_recensement?: number; // ✅ Ajouté
     },
   ) {
     return await this.service.update(id, body);

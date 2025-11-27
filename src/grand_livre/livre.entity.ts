@@ -1,6 +1,5 @@
 import { Entity, PrimaryColumn, Column, ManyToOne, JoinColumn, CreateDateColumn } from 'typeorm';
 import { Journal } from '../journal/journal.entity';
-import { TypeMateriel } from '../typemateriel/typemateriel.entity'; 
 
 @Entity('grand_livre')
 export class GrandLivre {
@@ -31,19 +30,11 @@ export class GrandLivre {
   @Column({ name: 'observation', type: 'text', nullable: true })
   observation: string;
 
-  // Relation avec journal
+  
   @ManyToOne(() => Journal, { nullable: false })
   @JoinColumn({ name: 'id_journal' })
   journal: Journal;
 
   @Column({ name: 'id_journal' })
   id_journal: string;
-
-  // ✅ Relation avec TYPE_MATERIEL (et non matériel)
-  @ManyToOne(() => TypeMateriel, { nullable: false })
-  @JoinColumn({ name: 'id_typemateriel' })
-  typeMateriel: TypeMateriel;
-
-  @Column({ name: 'id_typemateriel' })
-  id_type_materiel: string;
 }
