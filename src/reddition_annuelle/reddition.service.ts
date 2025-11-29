@@ -33,7 +33,7 @@ export class RedditionAnnuelleService {
   }
 
   async genererRedditionAutomatique(annee: number): Promise<GenerationRedditionResult> {
-    console.log(`📊 Génération automatique des redditions pour l'année ${annee}`);
+    console.log(` Génération automatique des redditions pour l'année ${annee}`);
 
     const result: GenerationRedditionResult = {
       total: 0,
@@ -42,17 +42,17 @@ export class RedditionAnnuelleService {
       details: [],
     };
 
-    // ✅ Récupérer tous les inventaires (un par matériel)
+    //  Récupérer tous les inventaires (un par matériel)
     const inventaires = await this.inventaireRepository.find({
       relations: ['materiel', 'materiel.typeMateriel'],
     });
 
-    console.log(`✅ ${inventaires.length} inventaires trouvés`);
+    console.log(` ${inventaires.length} inventaires trouvés`);
     result.total = inventaires.length;
 
     for (const inventaire of inventaires) {
       try {
-        // ✅ Trouver la dernière entrée du grand livre pour ce matériel
+        //  Trouver la dernière entrée du grand livre pour ce matériel
         const dernierGrandLivre = await this.grandLivreRepository.findOne({
           where: {},
           relations: ['journal', 'journal.mouvement', 'journal.mouvement.materiel'],
@@ -81,10 +81,10 @@ export class RedditionAnnuelleService {
           status: 'créé',
         });
 
-        console.log(`✅ Reddition créée : ${id_reddition} pour ${inventaire.materiel?.designation}`);
+        console.log(` Reddition créée : ${id_reddition} pour ${inventaire.materiel?.designation}`);
 
       } catch (error) {
-        console.error(`❌ Erreur pour ${inventaire.materiel?.designation}:`, error);
+        console.error(` Erreur pour ${inventaire.materiel?.designation}:`, error);
         result.erreurs++;
         result.details.push({
           materiel: inventaire.materiel?.designation,
@@ -94,7 +94,7 @@ export class RedditionAnnuelleService {
       }
     }
 
-    console.log(`✅ Génération terminée : ${result.crees} créées, ${result.erreurs} erreurs`);
+    console.log(` Génération terminée : ${result.crees} créées, ${result.erreurs} erreurs`);
     return result;
   }
 
