@@ -31,60 +31,46 @@ export class InventaireService {
     const newNumber = lastNumber + 1;
     return `INV${newNumber.toString().padStart(3, '0')}`;
   }
-
-  async create(
-    id_materiel: string,
-    quantite_stock: number,
-    seuil_alerte: number,
-    emplacement: string,
-  ) {
-    const materiel = await this.materielRepository.findOne({ 
-      where: { id: id_materiel } 
-    });
-    
-    if (!materiel) {
-      throw new NotFoundException(`Matériel ${id_materiel} non trouvé`);
-    }
-
-    if (materiel.categorie_materiel !== CategorieMateriel.DURABLE) {
-      throw new BadRequestException('Impossible de créer un inventaire pour un matériel consommable');
-    }
-
-    const existant = await this.findByMateriel(id_materiel);
-    if (existant) {
-      throw new ConflictException('Un inventaire existe déjà pour ce matériel');
-    }
-
-    const id = await this.generateId();
-    
-    const inventaire = this.inventaireRepository.create({
-      id,
-      materiel: { id: id_materiel } as any,
-      quantite_stock,
-      quantite_reservee: 0,
-      quantite_disponible: quantite_stock,
-      seuil_alerte,
-      date_dernier_inventaire: new Date(),
-      emplacement,
-    });
-
-    const saved = await this.inventaireRepository.save(inventaire);
-
-    if (quantite_stock > 0) {
-      await this.mouvementService.create({
-        id_materiel,
-        type_mouvement: MouvementType.ENTREE,
-        quantite_mouvement: quantite_stock,
-        id_reference: saved.id,
-        type_reference: 'INVENTAIRE_INITIAL',
-        motif: `Création inventaire initial - Stock: ${quantite_stock}`,
-        utilisateur: 'system',
-      });
-    }
-
-    console.log(`✅ Inventaire créé : ${id} - Stock: ${quantite_stock}`);
-    return saved;
+async create(
+  id_materiel: string,
+  quantite_stock: number,
+  seuil_alerte: number,
+) {
+  const materiel = await this.materielRepository.findOne({ 
+    where: { id: id_materiel } 
+  });
+  
+  if (!materiel) {
+    throw new NotFoundException(`Matériel ${id_materiel} non trouvé`);
   }
+
+  if (materiel.categorie_materiel !== CategorieMateriel.DURABLE) {
+    throw new BadRequestException('Impossible de créer un inventaire pour un matériel consommable');
+  }
+
+  const existant = await this.findByMateriel(id_materiel);
+  if (existant) {
+    throw new ConflictException('Un inventaire existe déjà pour ce matériel');
+  }
+
+  const id = await this.generateId();
+  
+  const inventaire = this.inventaireRepository.create({
+    id,
+    materiel: { id: id_materiel } as any,
+    quantite_stock,
+    quantite_reservee: 0,
+    quantite_disponible: quantite_stock,
+    seuil_alerte,
+    date_dernier_inventaire: new Date(),
+  });
+
+  const saved = await this.inventaireRepository.save(inventaire);
+
+  console.log(`✅ Inventaire créé : ${id} - Stock: ${quantite_stock} (sans mouvement - sera créé par approvisionnement)`);
+  return saved;
+}
+
 
   async approvisionner(id_materiel: string, quantite_ajoutee: number) {
     console.log(`\n=== APPROVISIONNEMENT ===`);
@@ -314,7 +300,7 @@ export class InventaireService {
       quantite_stock?: number;
       quantite_reservee?: number;
       seuil_alerte?: number;
-      emplacement?: string;
+      
     },
   ) {
     const inventaire = await this.findOne(id);
@@ -358,9 +344,7 @@ export class InventaireService {
       updateFields.seuil_alerte = Number(updateData.seuil_alerte);
     }
     
-    if (updateData.emplacement !== undefined) {
-      updateFields.emplacement = updateData.emplacement;
-    }
+    
 
     updateFields.date_mise_a_jour = new Date();
 

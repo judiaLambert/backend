@@ -22,7 +22,7 @@ export class EmailService {
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: email,
-      subject: '🎉 Votre compte a été activé - Gestion Stock ENI',
+      subject: ' Votre compte a été activé - ENI',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; color: white;">
@@ -53,28 +53,28 @@ export class EmailService {
             <div style="background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px; padding: 15px; margin: 20px 0;">
               <p style="color: #155724; margin: 0;">
                 <strong>⚠️ Sécurité importante :</strong><br>
-                Pour des raisons de sécurité, vous devez <strong>changer votre mot de passe</strong> dès maintenant.
+                Pour des raisons de sécurité, vous devez <strong>changer votre mot de passe</strong> dès la première connexion.
               </p>
             </div>
             
-            <div style="text-align: center; margin: 30px 0;">
+            <!--  <div style="text-align: center; margin: 30px 0;">
               <!-- CORRECTION : Lien DIRECT vers first-login -->
               <a href="http://localhost:3000/first-login" 
                  style="background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
                 🔗 Changer mon mot de passe maintenant
               </a>
-            </div>
+            </div>   
             
             <p style="color: #777; font-size: 14px; border-top: 1px solid #eee; padding-top: 20px;">
               <strong>Instructions :</strong><br>
               1. Cliquez sur le lien ci-dessus<br>
               2. Entrez votre nouveau mot de passe<br>
               3. Vous serez automatiquement connecté à votre compte
-            </p>
+            </p>   -->
             
             <p style="color: #777; font-size: 14px;">
               Si vous n'avez pas fait cette demande, veuillez ignorer cet email.<br>
-              <strong>Équipe Gestion de Stock - ENI</strong>
+              <strong>Équipe Comptabilité Matière - ENI</strong>
             </p>
           </div>
         </div>

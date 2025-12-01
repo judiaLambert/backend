@@ -29,11 +29,17 @@ export class DemandeurService {
     return await this.demandeurRepository.save(demandeur);
   }
 
-  async findAll() {
-    return await this.demandeurRepository.find({
-      relations: ['departement', 'utilisateur'],
-    });
-  }
+
+
+async findAll() {
+  return await this.demandeurRepository
+    .createQueryBuilder('demandeur')
+    .leftJoinAndSelect('demandeur.departement', 'departement')
+    .leftJoinAndSelect('demandeur.utilisateur', 'utilisateur')
+    .where('utilisateur.statut = :statut', { statut: 'actif' })
+    .getMany();
+}
+
 
   async findOne(id_demandeur: string) {
     const demandeur = await this.demandeurRepository.findOne({

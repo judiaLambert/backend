@@ -10,7 +10,7 @@ export class InventaireController {
     id_materiel: string;
     quantite_stock: number;
     seuil_alerte: number;
-    emplacement: string;
+  
   }) {
     if (!body.id_materiel || body.quantite_stock === undefined || body.seuil_alerte === undefined) {
       throw new BadRequestException('Tous les champs sont obligatoires');
@@ -19,7 +19,7 @@ export class InventaireController {
       body.id_materiel,
       body.quantite_stock,
       body.seuil_alerte,
-      body.emplacement,
+      
     );
   }
 
@@ -53,7 +53,7 @@ export class InventaireController {
     quantite_stock?: number;
     quantite_reservee?: number;
     seuil_alerte?: number;
-    emplacement?: string;
+    
   }) {
     return await this.inventaireService.update(id, body);
   }

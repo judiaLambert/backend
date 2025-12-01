@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { GrandLivre } from './livre.entity';
 import { Journal, StatutValidation } from '../journal/journal.entity';
+import { CategorieMateriel } from '../materiel/materiel.entity';
 import { GenerationDetail, GenerationResult } from './livre.types';
 
 @Injectable()
@@ -29,10 +30,20 @@ export class GrandLivreService {
     return `GL${newNumber.toString().padStart(3, '0')}`;
   }
 
-  async createFromJournal(journal: Journal): Promise<GrandLivre> {
+  async createFromJournal(journal: Journal): Promise<GrandLivre | null>{
+    //  VÉRIFIER SI LE MATÉRIEL EST DURABLE
+    if (!journal.mouvement || !journal.mouvement.materiel) {
+      throw new Error(`Journal ${journal.id_journal} sans mouvement ou matériel associé`);
+    }
+
+    if (journal.mouvement.materiel.categorie_materiel !== CategorieMateriel.DURABLE) {
+    console.log(` Matériel CONSOMMABLE - Pas de grand livre pour journal ${journal.id_journal}`);
+    return null; // 
+  }
+
     const id_grand_livre = await this.generateId();
 
-    // ✅ Récupérer le dernier solde global (pas par type)
+    //  Récupérer le dernier solde global
     const derniereSolde = await this.getDernierSolde();
 
     const isEntree = journal.mouvement.type_mouvement === 'ENTREE';
@@ -60,11 +71,11 @@ export class GrandLivreService {
     });
 
     const saved = await this.grandLivreRepository.save(grandLivre);
-    console.log(`✅ Grand livre créé : ${saved.id_grand_livre} pour journal ${journal.id_journal}`);
+    console.log(`✅ Grand livre créé : ${saved.id_grand_livre} pour journal ${journal.id_journal} (matériel DURABLE)`);
     return saved;
   }
 
-  // ✅ Récupérer le dernier solde GLOBAL (sans filtrer par type)
+  // ✅ Récupérer le dernier solde GLOBAL
   async getDernierSolde(): Promise<{ quantite: number; valeur: number }> {
     const derniereEntree = await this.grandLivreRepository.findOne({
       where: {},
@@ -165,19 +176,25 @@ export class GrandLivreService {
     };
   }
 
+  /**
+   * ✅ CORRECTION : Générer grand livre pour période AVEC filtre matériels DURABLES
+   */
   async genererGrandLivrePourPeriode(dateDebut: Date, dateFin: Date): Promise<GenerationResult> {
     console.log(`📊 Génération du grand livre pour la période du ${dateDebut.toISOString()} au ${dateFin.toISOString()}`);
 
-    const journauxValides = await this.journalRepository.find({
-      where: {
-        statut: StatutValidation.VALIDE,
-        date_validation: Between(dateDebut, dateFin),
-      },
-      relations: ['mouvement', 'mouvement.materiel', 'mouvement.materiel.typeMateriel'],
-      order: { date_validation: 'ASC' },
-    });
+    // ✅ RÉCUPÉRER UNIQUEMENT LES JOURNAUX DE MATÉRIELS DURABLES
+    const journauxValides = await this.journalRepository
+      .createQueryBuilder('journal')
+      .leftJoinAndSelect('journal.mouvement', 'mouvement')
+      .leftJoinAndSelect('mouvement.materiel', 'materiel')
+      .leftJoinAndSelect('materiel.typeMateriel', 'typeMateriel')
+      .where('journal.statut = :statut', { statut: StatutValidation.VALIDE })
+      .andWhere('journal.date_validation BETWEEN :dateDebut AND :dateFin', { dateDebut, dateFin })
+      .andWhere('materiel.categorie_materiel = :categorie', { categorie: CategorieMateriel.DURABLE })
+      .orderBy('journal.date_validation', 'ASC')
+      .getMany();
 
-    console.log(`✅ ${journauxValides.length} journaux validés trouvés pour cette période`);
+    console.log(`✅ ${journauxValides.length} journaux validés de matériels DURABLES trouvés pour cette période`);
 
     const results: GenerationResult = {
       total: journauxValides.length,
@@ -203,12 +220,18 @@ export class GrandLivreService {
           });
         } else {
           const grandLivre = await this.createFromJournal(journal);
-          results.crees++;
-          results.details.push({
-            journal: journal.id_journal,
-            status: 'créé',
-            grand_livre: grandLivre.id_grand_livre,
-          });
+          
+          // ✅ Vérifier si le grand livre a bien été créé (null si consommable)
+          if (grandLivre) {
+            results.crees++;
+            results.details.push({
+              journal: journal.id_journal,
+              status: 'créé',
+              grand_livre: grandLivre.id_grand_livre,
+            });
+          } else {
+            console.log(`⏭️  Pas de grand livre créé pour journal ${journal.id_journal} (matériel non durable)`);
+          }
         }
       } catch (error) {
         console.error(`❌ Erreur pour journal ${journal.id_journal}:`, error);
@@ -249,5 +272,35 @@ export class GrandLivreService {
     const debutAnnee = new Date(annee, 0, 1);
     const finAnnee = new Date(annee, 11, 31, 23, 59, 59, 999);
     return await this.genererGrandLivrePourPeriode(debutAnnee, finAnnee);
+  }
+
+  /**
+   * NOUVELLE MÉTHODE : Régénérer tout le grand livre depuis le début
+   * Utile pour corriger les données existantes
+   */
+  async regenererTout(): Promise<GenerationResult> {
+    console.log(`🔄 Régénération complète du grand livre...`);
+    
+    // Trouver la date du premier journal
+    const premierJournal = await this.journalRepository.findOne({
+      where: { statut: StatutValidation.VALIDE },
+      order: { date_validation: 'ASC' },
+    });
+
+    if (!premierJournal) {
+      console.log(`⚠️ Aucun journal validé trouvé`);
+      return {
+        total: 0,
+        crees: 0,
+        existants: 0,
+        erreurs: 0,
+        details: [],
+      };
+    }
+
+    const dateDebut = new Date(premierJournal.date_validation);
+    const dateFin = new Date();
+    
+    return await this.genererGrandLivrePourPeriode(dateDebut, dateFin);
   }
 }

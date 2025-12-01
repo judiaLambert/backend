@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { MouvementStock, MouvementType } from './mouvement.entity';
 import { Inventaire } from '../inventaire/inventaire.entity';
+import { Materiel, CategorieMateriel } from '../materiel/materiel.entity';
 import { JournalService } from '../journal/journal.service';
 
 @Injectable()
@@ -12,6 +13,8 @@ export class MouvementStockService {
     private mouvementRepository: Repository<MouvementStock>,
     @InjectRepository(Inventaire)
     private inventaireRepository: Repository<Inventaire>,
+    @InjectRepository(Materiel)
+    private materielRepository: Repository<Materiel>,
     private journalService: JournalService,
   ) {}
 
@@ -42,18 +45,48 @@ export class MouvementStockService {
   }) {
     const id = await this.generateId();
 
-    // Récupérer le stock actuel
-    const inventaire = await this.inventaireRepository.findOne({
-      where: { materiel: { id: mouvementData.id_materiel } },
-      relations: ['materiel']
+    // ✅ 1. RÉCUPÉRER LE MATÉRIEL POUR CONNAÎTRE SA CATÉGORIE
+    const materiel = await this.materielRepository.findOne({
+      where: { id: mouvementData.id_materiel },
     });
 
-    const stock_avant = inventaire?.quantite_stock || 0;
+    if (!materiel) {
+      throw new Error(`Matériel ${mouvementData.id_materiel} non trouvé`);
+    }
+
+    let stock_avant = 0;
+
+    // ✅ 2. CALCULER LE STOCK_AVANT SELON LA CATÉGORIE
+    if (materiel.categorie_materiel === CategorieMateriel.DURABLE) {
+      // ✅ DURABLE : Utiliser l'inventaire
+      console.log(`📦 Matériel DURABLE - Récupération stock depuis inventaire`);
+      const inventaire = await this.inventaireRepository.findOne({
+        where: { materiel: { id: mouvementData.id_materiel } },
+        relations: ['materiel']
+      });
+      stock_avant = inventaire?.quantite_stock || 0;
+      console.log(`   Stock inventaire : ${stock_avant}`);
+    } else {
+      // ✅ CONSOMMABLE : Utiliser le dernier mouvement
+      console.log(`📦 Matériel CONSOMMABLE - Récupération stock depuis dernier mouvement`);
+      const dernierMouvement = await this.mouvementRepository.findOne({
+        where: { materiel: { id: mouvementData.id_materiel } },
+        order: { date_mouvement: 'DESC' },
+      });
+      stock_avant = dernierMouvement?.stock_apres || 0;
+      console.log(`   Stock dernier mouvement : ${stock_avant}`);
+    }
+
+    // ✅ 3. CALCULER LE STOCK_APRES
     const stock_apres = this.calculateNewStock(
       stock_avant,
       mouvementData.type_mouvement,
       mouvementData.quantite_mouvement,
     );
+
+    console.log(`   Stock avant : ${stock_avant}`);
+    console.log(`   Mouvement : ${mouvementData.type_mouvement} ${mouvementData.quantite_mouvement}`);
+    console.log(`   Stock après : ${stock_apres}`);
 
     // Calculer la valeur totale
     const valeur_totale = mouvementData.prix_unitaire
@@ -75,31 +108,32 @@ export class MouvementStockService {
       stock_apres,
     });
 
-    // ✅ 1. Sauvegarder le mouvement
+    // ✅ 4. Sauvegarder le mouvement
     const savedMouvement = await this.mouvementRepository.save(mouvement);
     console.log(`✅ Mouvement créé : ${savedMouvement.id}`);
 
-    // ✅ 2. CRÉER AUTOMATIQUEMENT UNE ENTRÉE JOURNAL
+    // ✅ 5. CRÉER JOURNAL UNIQUEMENT POUR MATÉRIELS DURABLES
     try {
-      // Recharger le mouvement avec toutes les relations pour le journal
-      const mouvementComplet = await this.mouvementRepository.findOne({
-        where: { id: savedMouvement.id },
-        relations: ['materiel', 'materiel.typeMateriel'],
-      });
+      if (materiel.categorie_materiel === CategorieMateriel.DURABLE) {
+        // Recharger le mouvement avec toutes les relations
+        const mouvementComplet = await this.mouvementRepository.findOne({
+          where: { id: savedMouvement.id },
+          relations: ['materiel', 'materiel.typeMateriel'],
+        });
 
-      if (mouvementComplet) {
-        const journal = await this.journalService.createFromMouvement(mouvementComplet);
-        console.log(`✅ Journal créé automatiquement : ${journal.id_journal} pour mouvement ${mouvementComplet.id}`);
+        if (mouvementComplet) {
+          const journal = await this.journalService.createFromMouvement(mouvementComplet);
+          console.log(`✅ Journal créé pour matériel DURABLE : ${journal.id_journal} (mouvement ${mouvementComplet.id})`);
+        }
       } else {
-        console.warn(`⚠️ Mouvement ${savedMouvement.id} non trouvé pour créer le journal`);
+        console.log(`⏭️  Matériel CONSOMMABLE "${materiel.designation}" - Pas de journal créé pour mouvement ${savedMouvement.id}`);
       }
     } catch (error) {
       console.error(`❌ Erreur lors de la création du journal pour le mouvement ${savedMouvement.id}:`, error);
       // On ne bloque pas la création du mouvement si le journal échoue
-      // Le mouvement est déjà créé, on log juste l'erreur
     }
 
-    // ✅ 3. Retourner le mouvement sauvegardé
+    // ✅ 6. Retourner le mouvement sauvegardé
     return savedMouvement;
   }
 
@@ -126,6 +160,13 @@ export class MouvementStockService {
     return await this.mouvementRepository.find({
       relations: ['materiel', 'materiel.typeMateriel'],
       order: { date_mouvement: 'DESC' },
+    });
+  }
+
+  async findOne(id: string) {
+    return await this.mouvementRepository.findOne({
+      where: { id },
+      relations: ['materiel', 'materiel.typeMateriel'],
     });
   }
 
@@ -213,5 +254,43 @@ export class MouvementStockService {
       select: ['id', 'date_mouvement', 'type_mouvement', 'quantite_mouvement', 'stock_avant', 'stock_apres', 'type_reference'],
       order: { date_mouvement: 'ASC' },
     });
+  }
+
+  /**
+   * ✅ NOUVELLE MÉTHODE : Obtenir uniquement les mouvements de matériels DURABLES
+   */
+  async getMouvementsDurables() {
+    return await this.mouvementRepository
+      .createQueryBuilder('mouvement')
+      .leftJoinAndSelect('mouvement.materiel', 'materiel')
+      .leftJoinAndSelect('materiel.typeMateriel', 'typeMateriel')
+      .where('materiel.categorie_materiel = :categorie', { categorie: CategorieMateriel.DURABLE })
+      .orderBy('mouvement.date_mouvement', 'DESC')
+      .getMany();
+  }
+
+  /**
+   * ✅ NOUVELLE MÉTHODE : Obtenir uniquement les mouvements de matériels CONSOMMABLES
+   */
+  async getMouvementsConsommables() {
+    return await this.mouvementRepository
+      .createQueryBuilder('mouvement')
+      .leftJoinAndSelect('mouvement.materiel', 'materiel')
+      .leftJoinAndSelect('materiel.typeMateriel', 'typeMateriel')
+      .where('materiel.categorie_materiel = :categorie', { categorie: CategorieMateriel.CONSOMMABLE })
+      .orderBy('mouvement.date_mouvement', 'DESC')
+      .getMany();
+  }
+
+  /**
+   * ✅ NOUVELLE MÉTHODE : Obtenir le stock actuel d'un matériel consommable
+   */
+  async getStockConsommable(id_materiel: string): Promise<number> {
+    const dernierMouvement = await this.mouvementRepository.findOne({
+      where: { materiel: { id: id_materiel } },
+      order: { date_mouvement: 'DESC' },
+    });
+
+    return dernierMouvement?.stock_apres || 0;
   }
 }

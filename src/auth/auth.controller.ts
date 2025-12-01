@@ -97,7 +97,7 @@ export class AuthController {
       throw new BadRequestException('Lien invalide ou expiré');
     }
 
-    // Correction de l'erreur TypeScript ici
+    
     const utilisateurEmail = validation.email;
     if (!utilisateurEmail) {
       throw new BadRequestException('Email non trouvé');

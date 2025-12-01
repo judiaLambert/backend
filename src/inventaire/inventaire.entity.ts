@@ -25,8 +25,6 @@ export class Inventaire {
   @Column({ type: 'date' })
   date_dernier_inventaire: Date;
 
-  @Column({ type: 'varchar', length: 100 })
-  emplacement: string;
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   date_mise_a_jour: Date;
