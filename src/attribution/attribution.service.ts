@@ -158,34 +158,41 @@ export class AttributionService {
     await this.attributionRepository.update(id, { statut_attribution });
     return this.findOne(id);
   }
+async remove(id: string) {
+  const attribution = await this.findOne(id);
 
-  async remove(id: string) {
-    const attribution = await this.findOne(id);
-
-    // ✅ CRÉER MOUVEMENT ANNULATION si en possession
-    if (attribution.statut_attribution === 'En possession') {
-      await this.mouvementService.create({
-        id_materiel: attribution.materiel.id,
-        type_mouvement: MouvementType.ENTREE, // ✅ ENTREE au lieu de RETOUR_ATTRIBUTION
-        quantite_mouvement: attribution.quantite_attribuee,
-        id_reference: id,
-        type_reference: 'ANNULATION_ATTRIBUTION', // ✅ Contexte dans référence
-        motif: `Annulation attribution - Suppression`,
-        utilisateur: 'system',
-      });
-
-      try {
-        await this.inventaireService.appliquerRetour(
-          attribution.materiel.id,
-          attribution.quantite_attribuee,
-        );
-      } catch (err) {
-        console.warn(`Inventaire non mis à jour lors de la suppression:`, err.message);
-      }
+  // SEULEMENT REMETTRE EN STOCK SI EN POSSESSION (sans créer de mouvement)
+  if (attribution.statut_attribution === 'En possession') {
+    try {
+      //  Remettre le matériel en stock dans l'inventaire
+      await this.inventaireService.appliquerRetour(
+        attribution.materiel.id,
+        attribution.quantite_attribuee,
+      );
+      console.log(` Inventaire mis à jour pour matériel ${attribution.materiel.id} (+${attribution.quantite_attribuee})`);
+    } catch (err) {
+      console.warn(` Inventaire non mis à jour lors de la suppression:`, err.message);
+      // Ne pas bloquer la suppression si l'inventaire échoue
     }
-
-    return await this.attributionRepository.delete(id);
+  } else {
+    console.log(` Attribution ${id} avec statut "${attribution.statut_attribution}" - Pas de mise à jour inventaire`);
   }
+
+  //  SUPPRIMER L'ATTRIBUTION (sans créer de mouvement)
+  try {
+    await this.attributionRepository.delete(id);
+    console.log(` Attribution ${id} supprimée (aucun mouvement créé)`);
+    return { 
+      message: 'Attribution supprimée avec succès',
+      id
+    };
+  } catch (err) {
+    console.error(` Erreur suppression attribution ${id}:`, err);
+    throw new BadRequestException(
+      `Impossible de supprimer l'attribution: ${err.message}`
+    );
+  }
+}
 
   async getAttributionsEnRetard() {
     const maintenant = new Date();

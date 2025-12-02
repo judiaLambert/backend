@@ -67,73 +67,103 @@ export class DemandeMaterielService {
   }
 
   // Créer une demande avec ses détails (transaction)
-  async create(
-    id_demandeur: string,
-    raison_demande: string,
-    details: Array<{ id_materiel: string; quantite_demander: number }>,
-    type_possession: string = 'temporaire',
-    date_retour?: Date
-  ) {
-    return await this.dataSource.transaction(async (manager) => {
-      const demandeur = await manager.findOne(Demandeur, {
-        where: { id_demandeur }
-      });
 
-      if (!demandeur) {
-        throw new NotFoundException(`Demandeur ${id_demandeur} non trouvé`);
-      }
-
-      const id_demande = await this.generateDemandeId();
-
-      const demande = manager.create(DemandeMateriel, {
-        id: id_demande,
-        demandeur: { id_demandeur },
-        raison_demande: raison_demande,
-        date_demande: new Date(),
-        statut: 'en_attente',
-        type_possession: type_possession,
-        date_retour: date_retour
-      });
-
-      const savedDemande = await manager.save(DemandeMateriel, demande);
-
-      // Créer les détails...
-      const detailDemandes: DetailDemande[] = [];
-      
-      for (const detail of details) {
-        const materiel = await manager.findOne(Materiel, {
-          where: { id: detail.id_materiel }
-        });
-
-        if (!materiel) {
-          throw new NotFoundException(`Matériel ${detail.id_materiel} non trouvé`);
-        }
-
-        const id_detail = await this.generateDetailId();
-
-        const detailDemande = manager.create(DetailDemande, {
-          id: id_detail,
-          demandeMateriel: savedDemande,
-          materiel: { id: detail.id_materiel },
-          quantite_demander: detail.quantite_demander
-        });
-
-        const savedDetail = await manager.save(DetailDemande, detailDemande);
-        detailDemandes.push(savedDetail);
-      }
-
-      const demandeComplete = await manager.findOne(DemandeMateriel, {
-        where: { id: savedDemande.id },
-        relations: ['demandeur', 'detailDemandes', 'detailDemandes.materiel']
-      });
-
-      return {
-        success: true,
-        message: 'Demande créée avec succès et en attente de validation',
-        data: demandeComplete
-      };
+async create(
+  id_demandeur: string,
+  raison_demande: string,
+  details: Array<{ id_materiel: string; quantite_demander: number }>,
+  type_possession: string = 'temporaire',
+  date_retour?: Date
+) {
+  return await this.dataSource.transaction(async (manager) => {
+    const demandeur = await manager.findOne(Demandeur, {
+      where: { id_demandeur }
     });
+
+    if (!demandeur) {
+      throw new NotFoundException(`Demandeur ${id_demandeur} non trouvé`);
+    }
+
+    const id_demande = await this.generateDemandeId();
+
+    const demande = manager.create(DemandeMateriel, {
+      id: id_demande,
+      demandeur: { id_demandeur },
+      raison_demande: raison_demande,
+      date_demande: new Date(),
+      statut: 'en_attente',
+      type_possession: type_possession,
+      date_retour: date_retour
+    });
+
+    const savedDemande = await manager.save(DemandeMateriel, demande);
+
+    //  SOLUTION OPTIMALE : Récupérer le dernier ID UNE SEULE FOIS
+    let currentDetailNumber = await this.getLastDetailNumber(manager);
+
+    const detailDemandes: DetailDemande[] = [];
+    
+    for (const detail of details) {
+      const materiel = await manager.findOne(Materiel, {
+        where: { id: detail.id_materiel }
+      });
+
+      if (!materiel) {
+        throw new NotFoundException(`Matériel ${detail.id_materiel} non trouvé`);
+      }
+
+      // Incrémenter le compteur pour chaque détail
+      currentDetailNumber++;
+      const id_detail = `DET${currentDetailNumber.toString().padStart(2, '0')}`;
+
+      const detailDemande = manager.create(DetailDemande, {
+        id: id_detail,
+        demandeMateriel: savedDemande,
+        materiel: { id: detail.id_materiel },
+        quantite_demander: detail.quantite_demander
+      });
+
+      const savedDetail = await manager.save(DetailDemande, detailDemande);
+      detailDemandes.push(savedDetail);
+      
+      console.log(` Détail ${id_detail} créé pour matériel ${detail.id_materiel} (qté: ${detail.quantite_demander})`);
+    }
+
+    const demandeComplete = await manager.findOne(DemandeMateriel, {
+      where: { id: savedDemande.id },
+      relations: ['demandeur', 'detailDemandes', 'detailDemandes.materiel']
+    });
+
+    console.log(` Demande ${id_demande} créée avec ${detailDemandes.length} détail(s)`);
+
+    return {
+      success: true,
+      message: 'Demande créée avec succès et en attente de validation',
+      data: demandeComplete
+    };
+  });
+}
+
+//  MÉTHODE HELPER : Obtenir le dernier numéro de détail
+private async getLastDetailNumber(manager: any): Promise<number> {
+  const lastDetail = await manager
+    .createQueryBuilder(DetailDemande, 'detail')
+    .orderBy('detail.id_detail', 'DESC')
+    .getOne();
+
+  if (!lastDetail || !lastDetail.id) {
+    return 0;
   }
+
+  const numStr = lastDetail.id.substring(3);
+  const lastNumber = parseInt(numStr, 10);
+  
+  if (isNaN(lastNumber)) {
+    return 0;
+  }
+
+  return lastNumber;
+}
 
   // Récupérer toutes les demandes
   async findAll(): Promise<DemandeMateriel[]> {

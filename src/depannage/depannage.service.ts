@@ -313,16 +313,6 @@ export class DepannageService {
     
     // ✅ Si le dépannage n'était pas résolu, il faut rendre la disponibilité
     if (depannage.statut_depannage !== 'Résolu' && depannage.statut_depannage !== 'Irréparable') {
-      // ✅ CRÉER MOUVEMENT ANNULATION
-      await this.mouvementService.create({
-        id_materiel: depannage.id_materiel,
-        type_mouvement: MouvementType.ENTREE,
-        quantite_mouvement: 1,
-        id_reference: id,
-        type_reference: 'ANNULATION_DEPANNAGE',
-        motif: `Annulation dépannage - Suppression`,
-        utilisateur: 'system',
-      });
 
       // ✅ RÉTABLIR LA DISPONIBILITÉ DANS L'INVENTAIRE
       await this.inventaireService.appliquerDepannage(

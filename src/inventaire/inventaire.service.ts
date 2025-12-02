@@ -86,7 +86,7 @@ async create(
     }
 
     if (materiel.categorie_materiel !== CategorieMateriel.DURABLE) {
-      console.log(`⚠️ Matériel consommable, pas d'inventaire`);
+      console.log(` Matériel consommable, pas d'inventaire`);
       return null;
     }
 
@@ -123,12 +123,12 @@ async create(
     const inventaire = await this.findByMateriel(id_materiel);
     
     if (!inventaire) {
-      console.log(`⚠️ Pas d'inventaire pour ${id_materiel}`);
+      console.log(` Pas d'inventaire pour ${id_materiel}`);
       return null;
     }
 
     if (inventaire.materiel.categorie_materiel !== CategorieMateriel.DURABLE) {
-      console.log(`⚠️ Matériel consommable, pas de gestion inventaire`);
+      console.log(` Matériel consommable, pas de gestion inventaire`);
       return inventaire;
     }
 
@@ -193,7 +193,7 @@ async create(
   }
 
   /**
-   * ✅ NOUVELLE MÉTHODE : Appliquer les changements suite à un dépannage
+   *  NOUVELLE MÉTHODE : Appliquer les changements suite à un dépannage
    * Cette méthode est appelée automatiquement par le service de dépannage
    */
   async appliquerDepannage(id_materiel: string, nouveau_statut: string, ancien_statut?: string) {
@@ -204,12 +204,12 @@ async create(
     const inventaire = await this.findByMateriel(id_materiel);
     
     if (!inventaire) {
-      console.log(`⚠️ Pas d'inventaire pour ${id_materiel}`);
+      console.log(` Pas d'inventaire pour ${id_materiel}`);
       return null;
     }
 
     if (inventaire.materiel.categorie_materiel !== CategorieMateriel.DURABLE) {
-      console.log(`⚠️ Matériel consommable, pas de gestion inventaire`);
+      console.log(` Matériel consommable, pas de gestion inventaire`);
       return inventaire;
     }
 
@@ -217,23 +217,23 @@ async create(
     console.log(`Stock: ${inventaire.quantite_stock}`);
     console.log(`Réservée: ${inventaire.quantite_reservee}`);
 
-    // ✅ LOGIQUE : Matériel signalé en panne → disponibilité diminue
+    //  LOGIQUE : Matériel signalé en panne → disponibilité diminue
     if (nouveau_statut === 'Signalé' && (!ancien_statut || ancien_statut === 'Résolu')) {
       // Un matériel passe de disponible à en panne
       inventaire.quantite_disponible = Number(inventaire.quantite_disponible) - 1;
       if (inventaire.quantite_disponible < 0) {
         inventaire.quantite_disponible = 0;
       }
-      console.log(`➡️ Mise en panne : disponible -1`);
+      console.log(` Mise en panne : disponible -1`);
     }
     
-    // ✅ LOGIQUE : Matériel en cours de réparation → reste indisponible
+    //  LOGIQUE : Matériel en cours de réparation → reste indisponible
     else if (nouveau_statut === 'En cours') {
       // Pas de changement de disponibilité (déjà comptabilisé lors du signalement)
-      console.log(`➡️ En cours de réparation : pas de changement`);
+      console.log(` En cours de réparation : pas de changement`);
     }
     
-    // ✅ LOGIQUE : Matériel réparé → disponibilité augmente
+    //  LOGIQUE : Matériel réparé → disponibilité augmente
     else if (nouveau_statut === 'Résolu' && ancien_statut && ancien_statut !== 'Résolu') {
       // Un matériel en panne est réparé et redevient disponible
       inventaire.quantite_disponible = Number(inventaire.quantite_disponible) + 1;
@@ -243,7 +243,7 @@ async create(
       if (inventaire.quantite_disponible > maxDispo) {
         inventaire.quantite_disponible = maxDispo;
       }
-      console.log(`➡️ Réparation terminée : disponible +1`);
+      console.log(` Réparation terminée : disponible +1`);
     }
     
     // ✅ LOGIQUE : Matériel irréparable → stock diminue
@@ -356,18 +356,14 @@ async create(
     const inventaire = await this.findOne(id);
     
     if (inventaire.quantite_stock > 0) {
-      await this.mouvementService.create({
-        id_materiel: inventaire.materiel.id,
-        type_mouvement: MouvementType.SORTIE,
-        quantite_mouvement: inventaire.quantite_stock,
-        id_reference: id,
-        type_reference: 'SUPPRESSION_INVENTAIRE',
-        motif: `Suppression inventaire - Retrait de ${inventaire.quantite_stock} unités`,
-        utilisateur: 'system',
-      });
-    }
-    
-    return await this.inventaireRepository.delete(id);
+        const inventaire = await this.findOne(id);
+  
+  //  SUPPRIMER DIRECTEMENT SANS CRÉER DE MOUVEMENT
+  await this.inventaireRepository.remove(inventaire);
+  console.log(` Inventaire ${id} supprimé (pas de mouvement créé)`);
+  
+  return { message: 'Inventaire supprimé avec succès' };
+}
   }
 
   async getAlertesStockBas() {

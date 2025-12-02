@@ -24,19 +24,13 @@ export class ResultatRecensement {
   @Column({ name: 'ecart_trouve', type: 'int' })
   ecart_trouve: number;
 
-  // ✅ Prix unitaires
+  // ✅ Un seul PU : celui du système (CUMP)
   @Column({ name: 'pu_systeme', type: 'decimal', precision: 10, scale: 2, nullable: true })
   pu_systeme: number;
 
-  @Column({ name: 'pu_recensement', type: 'decimal', precision: 10, scale: 2, nullable: true })
-  pu_recensement: number;
-
-  // ✅ Valeurs calculées
+  // ✅ Une seule valeur : celle du système
   @Column({ name: 'valeur_systeme', type: 'decimal', precision: 10, scale: 2, nullable: true })
   valeur_systeme: number;
-
-  @Column({ name: 'valeur_recensement', type: 'decimal', precision: 10, scale: 2, nullable: true })
-  valeur_recensement: number;
 
   @Column({ name: 'description_ecart', type: 'text', nullable: true })
   description_ecart: string;
@@ -55,4 +49,9 @@ export class ResultatRecensement {
 
   @Column({ name: 'date_correction', type: 'timestamp', nullable: true })
   date_correction: Date;
+
+  // ✅ Getter pour calculer la valeur de l'écart dynamiquement
+  get valeur_ecart(): number {
+    return this.ecart_trouve * (this.pu_systeme || 0);
+  }
 }

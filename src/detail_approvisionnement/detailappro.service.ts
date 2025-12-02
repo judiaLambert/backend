@@ -174,29 +174,38 @@ export class DetailApprovisionnementService {
     return this.findOne(id);
   }
 
-  async remove(id: string) {
-    const detail = await this.findOne(id);
-    
-    // ✅ CRÉER MOUVEMENT CORRECTION NEGATIVE
-    await this.mouvementService.create({
-      id_materiel: detail.materiel.id,
-      type_mouvement: MouvementType.SORTIE, // ✅ SORTIE au lieu de CORRECTION_NEGATIVE
-      quantite_mouvement: detail.quantiteRecu,
-      id_reference: detail.approvisionnement.id,
-      type_reference: 'ANNULATION_APPROVISIONNEMENT', // ✅ Contexte dans référence
-      prix_unitaire: Number(detail.prixUnitaire),
-      motif: `Annulation approvisionnement - Suppression de ${detail.quantiteRecu} unités`,
-      utilisateur: 'system',
-    });
-
-    try {
-      await this.inventaireService.approvisionner(detail.materiel.id, -detail.quantiteRecu);
-    } catch (err) {
-      console.warn(`Inventaire non mis à jour lors de la suppression:`, err.message);
-    }
-
-    return await this.detailApproRepository.delete(id);
+ async remove(id: string) {
+  const detail = await this.findOne(id);
+  
+  //  SEULEMENT METTRE À JOUR L'INVENTAIRE (sans créer de mouvement)
+  try {
+    // Retirer la quantité de l'inventaire (quantité négative)
+    await this.inventaireService.approvisionner(
+      detail.materiel.id, 
+      -detail.quantiteRecu
+    );
+    console.log(` Inventaire mis à jour pour matériel ${detail.materiel.id} (-${detail.quantiteRecu})`);
+  } catch (err) {
+    console.warn(` Inventaire non mis à jour lors de la suppression:`, err.message);
+    // Ne pas bloquer la suppression si l'inventaire échoue
   }
+
+  //  SUPPRIMER LE DÉTAIL (sans créer de mouvement)
+  try {
+    await this.detailApproRepository.delete(id);
+    console.log(` Détail approvisionnement ${id} supprimé (aucun mouvement créé)`);
+    return { 
+      message: 'Détail supprimé avec succès',
+      id
+    };
+  } catch (err) {
+    console.error(` Erreur suppression détail ${id}:`, err);
+    throw new BadRequestException(
+      `Impossible de supprimer le détail: ${err.message}`
+    );
+  }
+}
+
 
   async getStatsByApprovisionnement(approId: string) {
     const details = await this.findByApprovisionnement(approId);

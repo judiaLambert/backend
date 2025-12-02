@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { MouvementStock, MouvementType } from './mouvement.entity';
@@ -34,59 +34,65 @@ export class MouvementStockService {
   }
 
   async create(mouvementData: {
-    id_materiel: string;
-    type_mouvement: MouvementType;
-    quantite_mouvement: number;
-    id_reference?: string;
-    type_reference?: string;
-    prix_unitaire?: number;
-    motif?: string;
-    utilisateur?: string;
-  }) {
-    const id = await this.generateId();
+  id_materiel: string;
+  type_mouvement: MouvementType;
+  quantite_mouvement: number;
+  id_reference?: string;
+  type_reference?: string;
+  prix_unitaire?: number;
+  motif?: string;
+  utilisateur?: string;
+}) {
+  const id = await this.generateId();
 
-    // ✅ 1. RÉCUPÉRER LE MATÉRIEL POUR CONNAÎTRE SA CATÉGORIE
-    const materiel = await this.materielRepository.findOne({
-      where: { id: mouvementData.id_materiel },
+  const materiel = await this.materielRepository.findOne({
+    where: { id: mouvementData.id_materiel },
+  });
+
+  if (!materiel) {
+    throw new Error(`Matériel ${mouvementData.id_materiel} non trouvé`);
+  }
+
+  let stock_avant = 0;
+
+  // 2. CALCULER LE STOCK_AVANT SELON LA CATÉGORIE
+  if (materiel.categorie_materiel === CategorieMateriel.DURABLE) {
+    console.log(` Matériel DURABLE - Récupération stock depuis inventaire`);
+    const inventaire = await this.inventaireRepository.findOne({
+      where: { materiel: { id: mouvementData.id_materiel } },
+      relations: ['materiel'],
     });
+    stock_avant = Number(inventaire?.quantite_stock ?? 0);
+    console.log(`   Stock inventaire : ${stock_avant}`);
+  } else {
+    console.log(` Matériel CONSOMMABLE - Récupération stock depuis dernier mouvement`);
+    const dernierMouvement = await this.mouvementRepository.findOne({
+      where: { materiel: { id: mouvementData.id_materiel } },
+      order: { date_mouvement: 'DESC' },
+    });
+    stock_avant = Number(dernierMouvement?.stock_apres ?? 0);
+    console.log(`   Stock dernier mouvement : ${stock_avant}`);
+  }
 
-    if (!materiel) {
-      throw new Error(`Matériel ${mouvementData.id_materiel} non trouvé`);
-    }
+  // 3. CALCULER LE STOCK_APRES (en nombres)
+  const stock_apres = this.calculateNewStock(
+    Number(stock_avant),
+    mouvementData.type_mouvement,
+    Number(mouvementData.quantite_mouvement),
+  );
 
-    let stock_avant = 0;
-
-    // ✅ 2. CALCULER LE STOCK_AVANT SELON LA CATÉGORIE
-    if (materiel.categorie_materiel === CategorieMateriel.DURABLE) {
-      // ✅ DURABLE : Utiliser l'inventaire
-      console.log(`📦 Matériel DURABLE - Récupération stock depuis inventaire`);
-      const inventaire = await this.inventaireRepository.findOne({
-        where: { materiel: { id: mouvementData.id_materiel } },
-        relations: ['materiel']
-      });
-      stock_avant = inventaire?.quantite_stock || 0;
-      console.log(`   Stock inventaire : ${stock_avant}`);
-    } else {
-      // ✅ CONSOMMABLE : Utiliser le dernier mouvement
-      console.log(`📦 Matériel CONSOMMABLE - Récupération stock depuis dernier mouvement`);
-      const dernierMouvement = await this.mouvementRepository.findOne({
-        where: { materiel: { id: mouvementData.id_materiel } },
-        order: { date_mouvement: 'DESC' },
-      });
-      stock_avant = dernierMouvement?.stock_apres || 0;
-      console.log(`   Stock dernier mouvement : ${stock_avant}`);
-    }
-
-    // ✅ 3. CALCULER LE STOCK_APRES
-    const stock_apres = this.calculateNewStock(
-      stock_avant,
-      mouvementData.type_mouvement,
-      mouvementData.quantite_mouvement,
+  if (stock_apres < 0) {
+    throw new BadRequestException(
+      `Stock insuffisant ! Stock actuel: ${stock_avant}, Quantité demandée: ${mouvementData.quantite_mouvement}. Stock après serait: ${stock_apres}`,
     );
+  }
 
-    console.log(`   Stock avant : ${stock_avant}`);
-    console.log(`   Mouvement : ${mouvementData.type_mouvement} ${mouvementData.quantite_mouvement}`);
-    console.log(`   Stock après : ${stock_apres}`);
+  console.log(`   Stock avant : ${stock_avant}`);
+  console.log(`   Mouvement : ${mouvementData.type_mouvement} ${mouvementData.quantite_mouvement}`);
+  console.log(`   Stock après : ${stock_apres}`);
+
+
+
 
     // Calculer la valeur totale
     const valeur_totale = mouvementData.prix_unitaire

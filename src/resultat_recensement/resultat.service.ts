@@ -35,12 +35,12 @@ export class ResultatRecensementService {
     return `RES${newNumber.toString().padStart(3, '0')}`;
   }
 
-  // ✅ Récupérer le prix unitaire depuis le dernier approvisionnement
+  // ✅ Récupérer le CUMP depuis le dernier approvisionnement
   async getPrixUnitaireSysteme(id_materiel: string): Promise<number> {
     const detailAppro = await this.detailApproRepository.findOne({
       where: { materiel: { id: id_materiel } },
       relations: ['approvisionnement'],
-    
+      order: { approvisionnement: { dateApprovisionnement: 'DESC' } },
     });
 
     return detailAppro?.prixUnitaire || 0;
@@ -53,7 +53,6 @@ export class ResultatRecensementService {
     type_recensement: string,
     date_recensement: Date,
     description_ecart?: string,
-    pu_recensement?: number, // Optionnel : PU constaté lors du recensement
   ) {
     const inventaire = await this.inventaireRepository.findOne({
       where: { id: id_inventaire },
@@ -67,15 +66,11 @@ export class ResultatRecensementService {
     const quantite_theorique = inventaire.quantite_stock;
     const ecart_trouve = quantite_physique - quantite_theorique;
 
-    // ✅ Récupérer le PU système depuis détail appro
+    // ✅ Récupérer le CUMP du matériel
     const pu_systeme = await this.getPrixUnitaireSysteme(inventaire.materiel.id);
-    
-    // ✅ PU recensement = PU système si non fourni
-    const pu_rec = pu_recensement || pu_systeme;
 
-    // ✅ Calcul des valeurs
+    // ✅ Calcul de la valeur système uniquement
     const valeur_systeme = quantite_theorique * pu_systeme;
-    const valeur_recensement = quantite_physique * pu_rec;
 
     const id = await this.generateId();
 
@@ -87,9 +82,7 @@ export class ResultatRecensementService {
       quantite_physique,
       ecart_trouve,
       pu_systeme,
-      pu_recensement: pu_rec,
       valeur_systeme,
-      valeur_recensement,
       description_ecart,
       type_recensement,
       date_recensement,
@@ -99,25 +92,29 @@ export class ResultatRecensementService {
     return await this.resultatRepository.save(resultat);
   }
 
-async findAll() {
-  const resultats = await this.resultatRepository.find({
-    relations: [
-      'commission',
-      'inventaire',
-      'inventaire.materiel',
-      'inventaire.materiel.typeMateriel',
-    ],
-    order: { date_recensement: 'DESC' },
-  });
+  async findAll() {
+    const resultats = await this.resultatRepository.find({
+      relations: [
+        'commission',
+        'inventaire',
+        'inventaire.materiel',
+        'inventaire.materiel.typeMateriel',
+      ],
+      order: { date_recensement: 'DESC' },
+    });
 
-  // ✅ Les PU sont déjà dans la BDD, pas besoin de requête supplémentaire
-  return resultats;
-}
+    return resultats;
+  }
 
   async findOne(id: string) {
     const resultat = await this.resultatRepository.findOne({
       where: { id },
-      relations: ['commission', 'inventaire', 'inventaire.materiel', 'inventaire.materiel.typeMateriel'],
+      relations: [
+        'commission',
+        'inventaire',
+        'inventaire.materiel',
+        'inventaire.materiel.typeMateriel',
+      ],
     });
 
     if (!resultat) {
@@ -130,7 +127,11 @@ async findAll() {
   async findByCommission(id_commission: string) {
     return await this.resultatRepository.find({
       where: { commission: { id: id_commission } },
-      relations: ['inventaire', 'inventaire.materiel', 'inventaire.materiel.typeMateriel'],
+      relations: [
+        'inventaire',
+        'inventaire.materiel',
+        'inventaire.materiel.typeMateriel',
+      ],
       order: { date_recensement: 'DESC' },
     });
   }
@@ -141,23 +142,15 @@ async findAll() {
       quantite_physique?: number;
       description_ecart?: string;
       statut_correction?: string;
-      pu_recensement?: number;
     },
   ) {
     const resultat = await this.findOne(id);
 
     const dataToUpdate: any = { ...updateData };
 
+    // ✅ Recalculer l'écart si la quantité physique change
     if (updateData.quantite_physique !== undefined) {
       dataToUpdate.ecart_trouve = updateData.quantite_physique - resultat.quantite_theorique;
-      
-      // Recalculer valeur_recensement
-      const pu = updateData.pu_recensement || resultat.pu_recensement;
-      dataToUpdate.valeur_recensement = updateData.quantite_physique * pu;
-    }
-
-    if (updateData.pu_recensement !== undefined && resultat.quantite_physique) {
-      dataToUpdate.valeur_recensement = resultat.quantite_physique * updateData.pu_recensement;
     }
 
     await this.resultatRepository.update(id, dataToUpdate);
@@ -192,55 +185,59 @@ async findAll() {
     return this.findOne(id);
   }
 
-  async appliquerCorrection(id: string, corrige_par: string) {
-    const resultat = await this.findOne(id);
+ async appliquerCorrection(id: string, corrige_par: string) {
+  const resultat = await this.findOne(id);
 
-    if (resultat.statut_correction !== 'valide') {
-      throw new BadRequestException('Le résultat doit être validé avant correction');
-    }
-
-    if (resultat.ecart_trouve === 0) {
-      throw new BadRequestException('Aucun écart à corriger');
-    }
-
-    const typeMouvement = resultat.ecart_trouve > 0 
-      ? MouvementType.ENTREE 
-      : MouvementType.SORTIE;
-
-    const typeReference = resultat.ecart_trouve > 0 
-      ? 'CORRECTION_POSITIVE' 
-      : 'CORRECTION_NEGATIVE';
-
-    // Créer mouvement correction
-    await this.mouvementService.create({
-      id_materiel: resultat.inventaire.materiel.id,
-      type_mouvement: typeMouvement,
-      quantite_mouvement: Math.abs(resultat.ecart_trouve),
-      id_reference: resultat.id,
-      type_reference: typeReference,
-      motif: resultat.description_ecart || 
-        `Correction suite recensement - ${resultat.ecart_trouve > 0 ? 'surplus' : 'manquant'} de ${Math.abs(resultat.ecart_trouve)} unités`,
-      utilisateur: corrige_par,
-    });
-
-    // Mettre à jour l'inventaire
-    const nouvelleQuantite = resultat.quantite_physique;
-    
-    await this.inventaireRepository.update(resultat.inventaire.id, {
-      quantite_stock: nouvelleQuantite,
-      quantite_disponible: nouvelleQuantite - resultat.inventaire.quantite_reservee,
-      date_dernier_inventaire: new Date(),
-      date_mise_a_jour: new Date(),
-    });
-
-    await this.resultatRepository.update(id, {
-      statut_correction: 'corrige',
-      corrige_par,
-      date_correction: new Date(),
-    });
-
-    return this.findOne(id);
+  if (resultat.statut_correction !== 'valide') {
+    throw new BadRequestException('Le résultat doit être validé avant correction');
   }
+
+  if (resultat.ecart_trouve === 0) {
+    throw new BadRequestException('Aucun écart à corriger');
+  }
+
+  const typeMouvement = resultat.ecart_trouve > 0 
+    ? MouvementType.ENTREE 
+    : MouvementType.SORTIE;
+
+  const typeReference = resultat.ecart_trouve > 0 
+    ? 'CORRECTION_POSITIVE' 
+    : 'CORRECTION_NEGATIVE';
+
+  //  Créer mouvement - la valeur_totale sera calculée automatiquement
+  const quantite_abs = Math.abs(resultat.ecart_trouve);
+
+  await this.mouvementService.create({
+    id_materiel: resultat.inventaire.materiel.id,
+    type_mouvement: typeMouvement,
+    quantite_mouvement: quantite_abs,
+    prix_unitaire: resultat.pu_systeme,
+    id_reference: resultat.id,
+    type_reference: typeReference,
+    motif: resultat.description_ecart || 
+      `Correction recensement - ${resultat.ecart_trouve > 0 ? 'surplus' : 'manquant'} de ${quantite_abs} unités`,
+    utilisateur: corrige_par,
+  });
+
+  //  Mettre à jour l'inventaire
+  const nouvelleQuantite = resultat.quantite_physique;
+  
+  await this.inventaireRepository.update(resultat.inventaire.id, {
+    quantite_stock: nouvelleQuantite,
+    quantite_disponible: nouvelleQuantite - resultat.inventaire.quantite_reservee,
+    date_dernier_inventaire: new Date(),
+    date_mise_a_jour: new Date(),
+  });
+
+  await this.resultatRepository.update(id, {
+    statut_correction: 'corrige',
+    corrige_par,
+    date_correction: new Date(),
+  });
+
+  return this.findOne(id);
+}
+
 
   async remove(id: string) {
     const resultat = await this.findOne(id);
@@ -276,6 +273,12 @@ async findAll() {
       .where('resultat.ecart_trouve != 0')
       .getCount();
 
+    // ✅ Valeur totale des écarts (pertes et surplus)
+    const valeursEcarts = await this.resultatRepository
+      .createQueryBuilder('resultat')
+      .select('SUM(resultat.ecart_trouve * resultat.pu_systeme)', 'valeur_totale_ecarts')
+      .getRawOne();
+
     return {
       total,
       enAttente,
@@ -284,6 +287,7 @@ async findAll() {
       rejetes,
       ecarts,
       conformes: total - ecarts,
+      valeur_totale_ecarts: parseFloat(valeursEcarts.valeur_totale_ecarts) || 0,
     };
   }
 }

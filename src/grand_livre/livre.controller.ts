@@ -32,10 +32,6 @@ export class GrandLivreController {
     return await this.grandLivreService.findByPeriode(new Date(debut), new Date(fin));
   }
 
-  @Get(':id')
-  async getOne(@Param('id') id: string) {
-    return await this.grandLivreService.findOne(id);
-  }
 
   @Post('generer/mois-courant')
   async genererMoisCourant(): Promise<GenerationResult> {
@@ -75,5 +71,9 @@ export class GrandLivreController {
       new Date(body.dateDebut),
       new Date(body.dateFin),
     );
+  }
+   @Get('resume-materiel')
+  async getResumeParMateriel() {
+    return this.grandLivreService.getResumeParMateriel();
   }
 }
