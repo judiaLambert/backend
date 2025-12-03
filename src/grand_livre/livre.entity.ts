@@ -1,40 +1,58 @@
 import { Entity, PrimaryColumn, Column, ManyToOne, JoinColumn, CreateDateColumn } from 'typeorm';
 import { Journal } from '../journal/journal.entity';
+import { Materiel } from '../materiel/materiel.entity';
 
 @Entity('grand_livre')
 export class GrandLivre {
-  @PrimaryColumn({ name: 'id_grand_livre', length: 10 })
+  @PrimaryColumn({ type: 'varchar', length: 20 })
   id_grand_livre: string;
 
-  @CreateDateColumn({ name: 'date_enregistrement' })
-  date_enregistrement: Date;
+  // ✅ NOUVEAU : Référence au matériel directement
+  @Column({ type: 'varchar', length: 20 })
+  id_materiel: string;
 
-  @Column({ name: 'quantite_entree', type: 'int', default: 0 })
+
+  @Column({ type: 'varchar', length: 20 })
+  id_journal: string;
+
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   quantite_entree: number;
 
-  @Column({ name: 'quantite_sortie', type: 'int', default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   quantite_sortie: number;
 
-  @Column({ name: 'valeur_entree', type: 'decimal', precision: 15, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
   valeur_entree: number;
 
-  @Column({ name: 'valeur_sortie', type: 'decimal', precision: 15, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
   valeur_sortie: number;
 
-  @Column({ name: 'quantite_restante', type: 'int', default: 0 })
+  
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   quantite_restante: number;
 
-  @Column({ name: 'valeur_restante', type: 'decimal', precision: 15, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
   valeur_restante: number;
 
-  @Column({ name: 'observation', type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true })
   observation: string;
 
-  
-  @ManyToOne(() => Journal, { nullable: false })
+  @CreateDateColumn()
+  date_enregistrement: Date;
+
+ 
+  @ManyToOne(() => Materiel)
+  @JoinColumn({ name: 'id_materiel' })
+  materiel: Materiel;
+
+  @ManyToOne(() => Journal)
   @JoinColumn({ name: 'id_journal' })
   journal: Journal;
 
-  @Column({ name: 'id_journal' })
-  id_journal: string;
+  // ✅ GETTER : CUMP actuel du matériel dans le Grand Livre
+  get cump(): number {
+    if (this.quantite_restante === 0) return 0;
+    return this.valeur_restante / this.quantite_restante;
+  }
 }

@@ -6,10 +6,11 @@ import { MouvementStock } from './mouvement.entity';
 import { Inventaire } from '../inventaire/inventaire.entity';
 import { JournalModule } from '../journal/journal.module';
 import { Materiel } from '../materiel/materiel.entity';
+import { InventaireModule } from '../inventaire/inventaire.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([MouvementStock, Inventaire, Materiel]),JournalModule
+    TypeOrmModule.forFeature([MouvementStock, Inventaire, Materiel]),JournalModule, InventaireModule
   ],
   controllers: [MouvementStockController],
   providers: [MouvementStockService],

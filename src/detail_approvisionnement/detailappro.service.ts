@@ -2,16 +2,14 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DetailApprovisionnement } from './detailappro.entity';
-import { InventaireService } from '../inventaire/inventaire.service';
 import { MouvementStockService } from '../mouvement_stock/mouvement.service';
-import { MouvementType } from '../mouvement_stock/mouvement.entity'; // ✅ Import
+import { MouvementType } from '../mouvement_stock/mouvement.entity';
 
 @Injectable()
 export class DetailApprovisionnementService {
   constructor(
     @InjectRepository(DetailApprovisionnement)
     private detailApproRepository: Repository<DetailApprovisionnement>,
-    private inventaireService: InventaireService,
     private mouvementService: MouvementStockService,
   ) {}
 
@@ -64,54 +62,21 @@ export class DetailApprovisionnementService {
 
     const saved = await this.detailApproRepository.save(detailAppro);
 
-    // ✅ CRÉER MOUVEMENT ENTRÉE
+    // ✅ MOUVEMENT ENTREE
     await this.mouvementService.create({
       id_materiel: idMateriel,
-      type_mouvement: MouvementType.ENTREE, // ✅ ENTREE au lieu de ENTREE_APPRO
+      type_mouvement: MouvementType.ENTREE,
       quantite_mouvement: quantiteRecu,
-      id_reference: idAppro,
-      type_reference: 'APPROVISIONNEMENT', // ✅ Contexte dans référence
       prix_unitaire: prixUnitaire,
-      motif: `Approvisionnement - Réception de ${quantiteRecu} unités`,
+      id_reference: idAppro,
+      type_reference: 'APPROVISIONNEMENT',
+      motif: `Approvisionnement ${idAppro} - Réception de ${quantiteRecu} unités`,
       utilisateur: 'system',
     });
 
-    // Mettre à jour l'inventaire
-    try {
-      await this.inventaireService.approvisionner(idMateriel, quantiteRecu);
-    } catch (err) {
-      console.warn(`Inventaire non mis à jour pour ${idMateriel}:`, err.message);
-    }
+    console.log(`✅ Détail créé + Mouvement ENTREE`);
 
     return saved;
-  }
-
-  async findAll() {
-    return await this.detailApproRepository.find({
-      relations: ['materiel', 'materiel.typeMateriel', 'approvisionnement', 'approvisionnement.acquisition'],
-      order: { id: 'ASC' }
-    });
-  }
-
-  async findOne(id: string) {
-    const detail = await this.detailApproRepository.findOne({
-      where: { id },
-      relations: ['materiel', 'materiel.typeMateriel', 'approvisionnement', 'approvisionnement.acquisition'],
-    });
-
-    if (!detail) {
-      throw new NotFoundException(`Détail approvisionnement ${id} non trouvé`);
-    }
-
-    return detail;
-  }
-
-  async findByApprovisionnement(approId: string) {
-    return await this.detailApproRepository.find({
-      where: { approvisionnement: { id: approId } },
-      relations: ['materiel', 'materiel.typeMateriel', 'approvisionnement', 'approvisionnement.acquisition'],
-      order: { id: 'ASC' }
-    });
   }
 
   async update(
@@ -147,65 +112,94 @@ export class DetailApprovisionnementService {
       quantiteTotal: total,
     });
 
-    // ✅ CRÉER MOUVEMENT CORRECTION SI CHANGEMENT
+    // ✅ MOUVEMENT CORRECTION si changement
     if (diffQuantite !== 0) {
-      // ✅ Type simplifié + référence explicite
       const typeMouvement = diffQuantite > 0 ? MouvementType.ENTREE : MouvementType.SORTIE;
       const typeReference = diffQuantite > 0 ? 'CORRECTION_POSITIVE' : 'CORRECTION_NEGATIVE';
       
       await this.mouvementService.create({
         id_materiel: idMateriel,
-        type_mouvement: typeMouvement, // ✅ ENTREE ou SORTIE
+        type_mouvement: typeMouvement,
         quantite_mouvement: Math.abs(diffQuantite),
-        id_reference: idAppro,
-        type_reference: typeReference, // ✅ Contexte dans référence
         prix_unitaire: prixUnitaire,
-        motif: `Correction approvisionnement - Ajustement de ${diffQuantite > 0 ? '+' : ''}${diffQuantite} unités`,
+        id_reference: idAppro,
+        type_reference: typeReference,
+        motif: `Correction approvisionnement ${idAppro} : ${diffQuantite > 0 ? '+' : ''}${diffQuantite} unités`,
         utilisateur: 'system',
       });
 
-      try {
-        await this.inventaireService.approvisionner(idMateriel, diffQuantite);
-      } catch (err) {
-        console.warn(`Inventaire non mis à jour pour ${idMateriel}:`, err.message);
-      }
+      console.log(`✅ Mouvement CORRECTION : ${diffQuantite > 0 ? '+' : ''}${diffQuantite}`);
     }
 
     return this.findOne(id);
   }
 
- async remove(id: string) {
-  const detail = await this.findOne(id);
-  
-  //  SEULEMENT METTRE À JOUR L'INVENTAIRE (sans créer de mouvement)
-  try {
-    // Retirer la quantité de l'inventaire (quantité négative)
-    await this.inventaireService.approvisionner(
-      detail.materiel.id, 
-      -detail.quantiteRecu
-    );
-    console.log(` Inventaire mis à jour pour matériel ${detail.materiel.id} (-${detail.quantiteRecu})`);
-  } catch (err) {
-    console.warn(` Inventaire non mis à jour lors de la suppression:`, err.message);
-    // Ne pas bloquer la suppression si l'inventaire échoue
-  }
+  // ✅ SUPPRESSION avec mouvement SORTIE
+  async remove(id: string) {
+    const detail = await this.findOne(id);
+    
+    const idMateriel = detail.materiel.id;
+    const quantiteRecu = detail.quantiteRecu;
+    const prixUnitaire = detail.prixUnitaire;
+    const idAppro = detail.approvisionnement.id;
 
-  //  SUPPRIMER LE DÉTAIL (sans créer de mouvement)
-  try {
+    console.log(`🗑️ Suppression du détail ${id}`);
+    console.log(`   Matériel: ${idMateriel}`);
+    console.log(`   Quantité à retirer: ${quantiteRecu}`);
+    
+    // ✅ CRÉER MOUVEMENT SORTIE
+    await this.mouvementService.create({
+      id_materiel: idMateriel,
+      type_mouvement: MouvementType.SORTIE,
+      quantite_mouvement: quantiteRecu,
+      prix_unitaire: prixUnitaire,
+      id_reference: idAppro,
+      type_reference: 'ANNULATION_APPROVISIONNEMENT',
+      motif: `Annulation approvisionnement ${idAppro} - Suppression détail ${id}`,
+      utilisateur: 'system',
+    });
+
+    console.log(`✅ Mouvement SORTIE créé : -${quantiteRecu} unités`);
+
+    // ✅ SUPPRIMER LE DÉTAIL
     await this.detailApproRepository.delete(id);
-    console.log(` Détail approvisionnement ${id} supprimé (aucun mouvement créé)`);
+    
     return { 
       message: 'Détail supprimé avec succès',
-      id
+      id,
+      quantite_retiree: quantiteRecu,
+      mouvement_cree: 'SORTIE',
+      inventaire_mis_a_jour: true
     };
-  } catch (err) {
-    console.error(` Erreur suppression détail ${id}:`, err);
-    throw new BadRequestException(
-      `Impossible de supprimer le détail: ${err.message}`
-    );
   }
-}
 
+  async findAll() {
+    return await this.detailApproRepository.find({
+      relations: ['materiel', 'materiel.typeMateriel', 'approvisionnement', 'approvisionnement.acquisition'],
+      order: { id: 'ASC' }
+    });
+  }
+
+  async findOne(id: string) {
+    const detail = await this.detailApproRepository.findOne({
+      where: { id },
+      relations: ['materiel', 'materiel.typeMateriel', 'approvisionnement', 'approvisionnement.acquisition'],
+    });
+
+    if (!detail) {
+      throw new NotFoundException(`Détail approvisionnement ${id} non trouvé`);
+    }
+
+    return detail;
+  }
+
+  async findByApprovisionnement(approId: string) {
+    return await this.detailApproRepository.find({
+      where: { approvisionnement: { id: approId } },
+      relations: ['materiel', 'materiel.typeMateriel', 'approvisionnement', 'approvisionnement.acquisition'],
+      order: { id: 'ASC' }
+    });
+  }
 
   async getStatsByApprovisionnement(approId: string) {
     const details = await this.findByApprovisionnement(approId);

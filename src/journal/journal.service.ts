@@ -103,13 +103,13 @@ export class JournalService {
 
     const updated = await this.journalRepository.save(journal);
 
-    // ✅ CRÉER AUTOMATIQUEMENT UNE ENTRÉE AU GRAND LIVRE
+    //  CRÉER AUTOMATIQUEMENT UNE ENTRÉE AU GRAND LIVRE
     try {
       const journalComplet = await this.findOne(id_journal);
-      await this.grandLivreService.createFromJournal(journalComplet);
-      console.log(`✅ Entrée grand livre créée pour journal ${id_journal}`);
+      await this.grandLivreService.createOrUpdateFromJournal(journalComplet);
+      console.log(` Entrée grand livre créée pour journal ${id_journal}`);
     } catch (error) {
-      console.error(`❌ Erreur lors de la création du grand livre pour ${id_journal}:`, error);
+      console.error(` Erreur lors de la création du grand livre pour ${id_journal}:`, error);
     }
 
     return updated;

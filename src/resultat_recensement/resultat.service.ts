@@ -3,7 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ResultatRecensement } from './resultat.entity';
 import { Inventaire } from '../inventaire/inventaire.entity';
-import { DetailApprovisionnement } from '../detail_approvisionnement/detailappro.entity';
 import { MouvementStockService } from '../mouvement_stock/mouvement.service';
 import { MouvementType } from '../mouvement_stock/mouvement.entity';
 
@@ -14,8 +13,6 @@ export class ResultatRecensementService {
     private resultatRepository: Repository<ResultatRecensement>,
     @InjectRepository(Inventaire)
     private inventaireRepository: Repository<Inventaire>,
-    @InjectRepository(DetailApprovisionnement)
-    private detailApproRepository: Repository<DetailApprovisionnement>,
     private mouvementService: MouvementStockService,
   ) {}
 
@@ -35,15 +32,9 @@ export class ResultatRecensementService {
     return `RES${newNumber.toString().padStart(3, '0')}`;
   }
 
-  // ✅ Récupérer le CUMP depuis le dernier approvisionnement
+  // ✅ Récupérer le CUMP depuis l'inventaire
   async getPrixUnitaireSysteme(id_materiel: string): Promise<number> {
-    const detailAppro = await this.detailApproRepository.findOne({
-      where: { materiel: { id: id_materiel } },
-      relations: ['approvisionnement'],
-      order: { approvisionnement: { dateApprovisionnement: 'DESC' } },
-    });
-
-    return detailAppro?.prixUnitaire || 0;
+    return await this.mouvementService.getCUMP(id_materiel);
   }
 
   async create(
@@ -66,10 +57,10 @@ export class ResultatRecensementService {
     const quantite_theorique = inventaire.quantite_stock;
     const ecart_trouve = quantite_physique - quantite_theorique;
 
-    // ✅ Récupérer le CUMP du matériel
+    // ✅ Récupérer le CUMP actuel du matériel depuis l'inventaire
     const pu_systeme = await this.getPrixUnitaireSysteme(inventaire.materiel.id);
 
-    // ✅ Calcul de la valeur système uniquement
+    // ✅ Calcul de la valeur système
     const valeur_systeme = quantite_theorique * pu_systeme;
 
     const id = await this.generateId();
@@ -88,6 +79,14 @@ export class ResultatRecensementService {
       date_recensement,
       statut_correction: 'en_attente',
     });
+
+    console.log(`📋 Résultat recensement créé:`);
+    console.log(`   Quantité théorique: ${quantite_theorique}`);
+    console.log(`   Quantité physique: ${quantite_physique}`);
+    console.log(`   Écart: ${ecart_trouve}`);
+    console.log(`   PU système (CUMP): ${pu_systeme} Ar`);
+    console.log(`   Valeur système: ${valeur_systeme} Ar`);
+    console.log(`   Valeur écart: ${ecart_trouve * pu_systeme} Ar`);
 
     return await this.resultatRepository.save(resultat);
   }
@@ -185,59 +184,64 @@ export class ResultatRecensementService {
     return this.findOne(id);
   }
 
- async appliquerCorrection(id: string, corrige_par: string) {
-  const resultat = await this.findOne(id);
+  async appliquerCorrection(id: string, corrige_par: string) {
+    const resultat = await this.findOne(id);
 
-  if (resultat.statut_correction !== 'valide') {
-    throw new BadRequestException('Le résultat doit être validé avant correction');
+    if (resultat.statut_correction !== 'valide') {
+      throw new BadRequestException('Le résultat doit être validé avant correction');
+    }
+
+    if (resultat.ecart_trouve === 0) {
+      throw new BadRequestException('Aucun écart à corriger');
+    }
+
+    const typeMouvement = resultat.ecart_trouve > 0 
+      ? MouvementType.ENTREE 
+      : MouvementType.SORTIE;
+
+    const typeReference = resultat.ecart_trouve > 0 
+      ? 'CORRECTION_POSITIVE' 
+      : 'CORRECTION_NEGATIVE';
+
+    const quantite_abs = Math.abs(resultat.ecart_trouve);
+
+    console.log(`🔧 Application correction:`);
+    console.log(`   Type: ${typeMouvement}`);
+    console.log(`   Quantité: ${quantite_abs}`);
+    console.log(`   PU système: ${resultat.pu_systeme} Ar`);
+
+    // ✅ Créer le mouvement de correction
+    // Le mouvement mettra automatiquement à jour l'inventaire (quantités + valeur)
+    await this.mouvementService.create({
+      id_materiel: resultat.inventaire.materiel.id,
+      type_mouvement: typeMouvement,
+      quantite_mouvement: quantite_abs,
+      prix_unitaire: resultat.pu_systeme,
+      id_reference: resultat.id,
+      type_reference: typeReference,
+      motif: resultat.description_ecart || 
+        `Correction recensement - ${resultat.ecart_trouve > 0 ? 'surplus' : 'manquant'} de ${quantite_abs} unités`,
+      utilisateur: corrige_par,
+    });
+
+    // ✅ IMPORTANT : Ne PAS mettre à jour l'inventaire manuellement ici
+    // Le MouvementService l'a déjà fait (quantités + valeur_stock)
+    
+    // ✅ Juste mettre à jour la date du dernier inventaire
+    await this.inventaireRepository.update(resultat.inventaire.id, {
+      date_dernier_inventaire: new Date(),
+    });
+
+    await this.resultatRepository.update(id, {
+      statut_correction: 'corrige',
+      corrige_par,
+      date_correction: new Date(),
+    });
+
+    console.log(`✅ Correction appliquée avec succès`);
+
+    return this.findOne(id);
   }
-
-  if (resultat.ecart_trouve === 0) {
-    throw new BadRequestException('Aucun écart à corriger');
-  }
-
-  const typeMouvement = resultat.ecart_trouve > 0 
-    ? MouvementType.ENTREE 
-    : MouvementType.SORTIE;
-
-  const typeReference = resultat.ecart_trouve > 0 
-    ? 'CORRECTION_POSITIVE' 
-    : 'CORRECTION_NEGATIVE';
-
-  //  Créer mouvement - la valeur_totale sera calculée automatiquement
-  const quantite_abs = Math.abs(resultat.ecart_trouve);
-
-  await this.mouvementService.create({
-    id_materiel: resultat.inventaire.materiel.id,
-    type_mouvement: typeMouvement,
-    quantite_mouvement: quantite_abs,
-    prix_unitaire: resultat.pu_systeme,
-    id_reference: resultat.id,
-    type_reference: typeReference,
-    motif: resultat.description_ecart || 
-      `Correction recensement - ${resultat.ecart_trouve > 0 ? 'surplus' : 'manquant'} de ${quantite_abs} unités`,
-    utilisateur: corrige_par,
-  });
-
-  //  Mettre à jour l'inventaire
-  const nouvelleQuantite = resultat.quantite_physique;
-  
-  await this.inventaireRepository.update(resultat.inventaire.id, {
-    quantite_stock: nouvelleQuantite,
-    quantite_disponible: nouvelleQuantite - resultat.inventaire.quantite_reservee,
-    date_dernier_inventaire: new Date(),
-    date_mise_a_jour: new Date(),
-  });
-
-  await this.resultatRepository.update(id, {
-    statut_correction: 'corrige',
-    corrige_par,
-    date_correction: new Date(),
-  });
-
-  return this.findOne(id);
-}
-
 
   async remove(id: string) {
     const resultat = await this.findOne(id);
