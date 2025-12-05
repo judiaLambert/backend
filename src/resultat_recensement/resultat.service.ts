@@ -184,64 +184,93 @@ export class ResultatRecensementService {
     return this.findOne(id);
   }
 
-  async appliquerCorrection(id: string, corrige_par: string) {
-    const resultat = await this.findOne(id);
+ async appliquerCorrection(id: string, corrige_par: string) {
+  const resultat = await this.findOne(id);
 
-    if (resultat.statut_correction !== 'valide') {
-      throw new BadRequestException('Le résultat doit être validé avant correction');
-    }
-
-    if (resultat.ecart_trouve === 0) {
-      throw new BadRequestException('Aucun écart à corriger');
-    }
-
-    const typeMouvement = resultat.ecart_trouve > 0 
-      ? MouvementType.ENTREE 
-      : MouvementType.SORTIE;
-
-    const typeReference = resultat.ecart_trouve > 0 
-      ? 'CORRECTION_POSITIVE' 
-      : 'CORRECTION_NEGATIVE';
-
-    const quantite_abs = Math.abs(resultat.ecart_trouve);
-
-    console.log(`🔧 Application correction:`);
-    console.log(`   Type: ${typeMouvement}`);
-    console.log(`   Quantité: ${quantite_abs}`);
-    console.log(`   PU système: ${resultat.pu_systeme} Ar`);
-
-    // ✅ Créer le mouvement de correction
-    // Le mouvement mettra automatiquement à jour l'inventaire (quantités + valeur)
-    await this.mouvementService.create({
-      id_materiel: resultat.inventaire.materiel.id,
-      type_mouvement: typeMouvement,
-      quantite_mouvement: quantite_abs,
-      prix_unitaire: resultat.pu_systeme,
-      id_reference: resultat.id,
-      type_reference: typeReference,
-      motif: resultat.description_ecart || 
-        `Correction recensement - ${resultat.ecart_trouve > 0 ? 'surplus' : 'manquant'} de ${quantite_abs} unités`,
-      utilisateur: corrige_par,
-    });
-
-    // ✅ IMPORTANT : Ne PAS mettre à jour l'inventaire manuellement ici
-    // Le MouvementService l'a déjà fait (quantités + valeur_stock)
-    
-    // ✅ Juste mettre à jour la date du dernier inventaire
-    await this.inventaireRepository.update(resultat.inventaire.id, {
-      date_dernier_inventaire: new Date(),
-    });
-
-    await this.resultatRepository.update(id, {
-      statut_correction: 'corrige',
-      corrige_par,
-      date_correction: new Date(),
-    });
-
-    console.log(`✅ Correction appliquée avec succès`);
-
-    return this.findOne(id);
+  if (resultat.statut_correction !== 'valide') {
+    throw new BadRequestException('Le résultat doit être validé avant correction');
   }
+
+  if (resultat.ecart_trouve === 0) {
+    throw new BadRequestException('Aucun écart à corriger');
+  }
+
+  const typeMouvement = resultat.ecart_trouve > 0 
+    ? MouvementType.ENTREE 
+    : MouvementType.SORTIE;
+
+  const typeReference = resultat.ecart_trouve > 0 
+    ? 'CORRECTION_POSITIVE' 
+    : 'CORRECTION_NEGATIVE';
+
+  const quantite_abs = Math.abs(resultat.ecart_trouve);
+
+  // ✅ CORRECTION : Convertir en nombre avant toFixed()
+  const pu_systeme_num = Number(resultat.pu_systeme) || 0;
+  const valeur_systeme_num = Number(resultat.valeur_systeme) || 0;
+
+  console.log(`\n🔧 === APPLICATION CORRECTION ${id} ===`);
+  console.log(`Type: ${typeMouvement}`);
+  console.log(`Quantité: ${quantite_abs}`);
+  console.log(`PU système (avant correction): ${pu_systeme_num.toFixed(2)} Ar`);
+  console.log(`Valeur système (avant correction): ${valeur_systeme_num.toFixed(2)} Ar`);
+
+  // ✅ Créer le mouvement de correction avec la valeur numérique
+  await this.mouvementService.create({
+    id_materiel: resultat.inventaire.materiel.id,
+    type_mouvement: typeMouvement,
+    quantite_mouvement: quantite_abs,
+    prix_unitaire: pu_systeme_num,  // ✅ Utiliser la valeur convertie
+    id_reference: resultat.id,
+    type_reference: typeReference,
+    motif: resultat.description_ecart || 
+      `Correction recensement - ${resultat.ecart_trouve > 0 ? 'surplus' : 'manquant'} de ${quantite_abs} unités`,
+    utilisateur: corrige_par,
+  });
+
+  // ✅ Mettre à jour la date du dernier inventaire
+  await this.inventaireRepository.update(resultat.inventaire.id, {
+    date_dernier_inventaire: new Date(),
+  });
+
+  // ✅ Marquer comme corrigé
+  await this.resultatRepository.update(id, {
+    statut_correction: 'corrige',
+    corrige_par,
+    date_correction: new Date(),
+  });
+
+  // ✅ Recalculer et mettre à jour la valeur système APRÈS correction
+  const inventaireApres = await this.inventaireRepository.findOne({
+    where: { id: resultat.inventaire.id },
+    relations: ['materiel'],
+  });
+
+  if (!inventaireApres) {
+    throw new NotFoundException(`Inventaire ${resultat.inventaire.id} introuvable après correction`);
+  }
+
+  const cump_apres = await this.getPrixUnitaireSysteme(inventaireApres.materiel.id);
+  const valeur_systeme_apres = inventaireApres.quantite_stock * cump_apres;
+
+  console.log(`\n📊 === APRÈS CORRECTION ===`);
+  console.log(`Stock après: ${inventaireApres.quantite_stock}`);
+  console.log(`CUMP après: ${cump_apres.toFixed(2)} Ar`);
+  console.log(`Valeur système après: ${valeur_systeme_apres.toFixed(2)} Ar`);
+
+  // ✅ Mettre à jour le résultat avec les nouvelles valeurs
+  await this.resultatRepository.update(id, {
+    pu_systeme: cump_apres,
+    valeur_systeme: valeur_systeme_apres,
+    quantite_theorique: inventaireApres.quantite_stock,
+  });
+
+  console.log(`✅ Correction appliquée et valeur système mise à jour\n`);
+
+  return this.findOne(id);
+}
+
+
 
   async remove(id: string) {
     const resultat = await this.findOne(id);
@@ -280,7 +309,7 @@ export class ResultatRecensementService {
     // ✅ Valeur totale des écarts (pertes et surplus)
     const valeursEcarts = await this.resultatRepository
       .createQueryBuilder('resultat')
-      .select('SUM(resultat.ecart_trouve * resultat.pu_systeme)', 'valeur_totale_ecarts')
+      .select('SUM(ABS(resultat.ecart_trouve * resultat.pu_systeme))', 'valeur_totale_ecarts') 
       .getRawOne();
 
     return {

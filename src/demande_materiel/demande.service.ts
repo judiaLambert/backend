@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, NotFoundException, HttpException, HttpStatus, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { DemandeMateriel } from './demande.entity';
@@ -66,104 +66,103 @@ export class DemandeMaterielService {
     return `DET${nextNumber.toString().padStart(2, '0')}`;
   }
 
-  // Créer une demande avec ses détails (transaction)
+  // MÉTHODE HELPER : Obtenir le dernier numéro de détail
+  private async getLastDetailNumber(manager: any): Promise<number> {
+    const lastDetail = await manager
+      .createQueryBuilder(DetailDemande, 'detail')
+      .orderBy('detail.id_detail', 'DESC')
+      .getOne();
 
-async create(
-  id_demandeur: string,
-  raison_demande: string,
-  details: Array<{ id_materiel: string; quantite_demander: number }>,
-  type_possession: string = 'temporaire',
-  date_retour?: Date
-) {
-  return await this.dataSource.transaction(async (manager) => {
-    const demandeur = await manager.findOne(Demandeur, {
-      where: { id_demandeur }
-    });
-
-    if (!demandeur) {
-      throw new NotFoundException(`Demandeur ${id_demandeur} non trouvé`);
+    if (!lastDetail || !lastDetail.id) {
+      return 0;
     }
 
-    const id_demande = await this.generateDemandeId();
-
-    const demande = manager.create(DemandeMateriel, {
-      id: id_demande,
-      demandeur: { id_demandeur },
-      raison_demande: raison_demande,
-      date_demande: new Date(),
-      statut: 'en_attente',
-      type_possession: type_possession,
-      date_retour: date_retour
-    });
-
-    const savedDemande = await manager.save(DemandeMateriel, demande);
-
-    //  SOLUTION OPTIMALE : Récupérer le dernier ID UNE SEULE FOIS
-    let currentDetailNumber = await this.getLastDetailNumber(manager);
-
-    const detailDemandes: DetailDemande[] = [];
+    const numStr = lastDetail.id.substring(3);
+    const lastNumber = parseInt(numStr, 10);
     
-    for (const detail of details) {
-      const materiel = await manager.findOne(Materiel, {
-        where: { id: detail.id_materiel }
+    if (isNaN(lastNumber)) {
+      return 0;
+    }
+
+    return lastNumber;
+  }
+
+  // Créer une demande avec ses détails (transaction)
+  async create(
+    id_demandeur: string,
+    raison_demande: string,
+    details: Array<{ id_materiel: string; quantite_demander: number }>,
+    type_possession: string = 'temporaire',
+    date_retour?: Date
+  ) {
+    return await this.dataSource.transaction(async (manager) => {
+      const demandeur = await manager.findOne(Demandeur, {
+        where: { id_demandeur }
       });
 
-      if (!materiel) {
-        throw new NotFoundException(`Matériel ${detail.id_materiel} non trouvé`);
+      if (!demandeur) {
+        throw new NotFoundException(`Demandeur ${id_demandeur} non trouvé`);
       }
 
-      // Incrémenter le compteur pour chaque détail
-      currentDetailNumber++;
-      const id_detail = `DET${currentDetailNumber.toString().padStart(2, '0')}`;
+      const id_demande = await this.generateDemandeId();
 
-      const detailDemande = manager.create(DetailDemande, {
-        id: id_detail,
-        demandeMateriel: savedDemande,
-        materiel: { id: detail.id_materiel },
-        quantite_demander: detail.quantite_demander
+      const demande = manager.create(DemandeMateriel, {
+        id: id_demande,
+        demandeur: { id_demandeur },
+        raison_demande: raison_demande,
+        date_demande: new Date(),
+        statut: 'en_attente',
+        type_possession: type_possession,
+        date_retour: date_retour
       });
 
-      const savedDetail = await manager.save(DetailDemande, detailDemande);
-      detailDemandes.push(savedDetail);
+      const savedDemande = await manager.save(DemandeMateriel, demande);
+
+      // SOLUTION OPTIMALE : Récupérer le dernier ID UNE SEULE FOIS
+      let currentDetailNumber = await this.getLastDetailNumber(manager);
+
+      const detailDemandes: DetailDemande[] = [];
       
-      console.log(` Détail ${id_detail} créé pour matériel ${detail.id_materiel} (qté: ${detail.quantite_demander})`);
-    }
+      for (const detail of details) {
+        const materiel = await manager.findOne(Materiel, {
+          where: { id: detail.id_materiel }
+        });
 
-    const demandeComplete = await manager.findOne(DemandeMateriel, {
-      where: { id: savedDemande.id },
-      relations: ['demandeur', 'detailDemandes', 'detailDemandes.materiel']
+        if (!materiel) {
+          throw new NotFoundException(`Matériel ${detail.id_materiel} non trouvé`);
+        }
+
+        // Incrémenter le compteur pour chaque détail
+        currentDetailNumber++;
+        const id_detail = `DET${currentDetailNumber.toString().padStart(2, '0')}`;
+
+        const detailDemande = manager.create(DetailDemande, {
+          id: id_detail,
+          demandeMateriel: savedDemande,
+          materiel: { id: detail.id_materiel },
+          quantite_demander: detail.quantite_demander
+        });
+
+        const savedDetail = await manager.save(DetailDemande, detailDemande);
+        detailDemandes.push(savedDetail);
+        
+        console.log(`✅ Détail ${id_detail} créé pour matériel ${detail.id_materiel} (qté: ${detail.quantite_demander})`);
+      }
+
+      const demandeComplete = await manager.findOne(DemandeMateriel, {
+        where: { id: savedDemande.id },
+        relations: ['demandeur', 'detailDemandes', 'detailDemandes.materiel']
+      });
+
+      console.log(`✅ Demande ${id_demande} créée avec ${detailDemandes.length} détail(s)`);
+
+      return {
+        success: true,
+        message: 'Demande créée avec succès et en attente de validation',
+        data: demandeComplete
+      };
     });
-
-    console.log(` Demande ${id_demande} créée avec ${detailDemandes.length} détail(s)`);
-
-    return {
-      success: true,
-      message: 'Demande créée avec succès et en attente de validation',
-      data: demandeComplete
-    };
-  });
-}
-
-//  MÉTHODE HELPER : Obtenir le dernier numéro de détail
-private async getLastDetailNumber(manager: any): Promise<number> {
-  const lastDetail = await manager
-    .createQueryBuilder(DetailDemande, 'detail')
-    .orderBy('detail.id_detail', 'DESC')
-    .getOne();
-
-  if (!lastDetail || !lastDetail.id) {
-    return 0;
   }
-
-  const numStr = lastDetail.id.substring(3);
-  const lastNumber = parseInt(numStr, 10);
-  
-  if (isNaN(lastNumber)) {
-    return 0;
-  }
-
-  return lastNumber;
-}
 
   // Récupérer toutes les demandes
   async findAll(): Promise<DemandeMateriel[]> {
@@ -203,21 +202,71 @@ private async getLastDetailNumber(manager: any): Promise<number> {
     return await this.demandeRepository.save(demande);
   }
 
-  // Mettre à jour le statut d'une demande (approuver/refuser)
+  // ✅ NOUVELLE MÉTHODE : Approuver une demande
+  async approuver(id: string, motif?: string): Promise<DemandeMateriel> {
+    console.log(`\n✅ === APPROBATION DEMANDE ${id} ===`);
+    
+    const demande = await this.findOne(id);
+    console.log(`Statut actuel: ${demande.statut}`);
+
+    if (demande.statut !== 'en_attente') {
+      throw new BadRequestException(`Impossible d'approuver. Statut actuel: ${demande.statut}`);
+    }
+
+    // ✅ Mettre à jour avec le bon statut
+    demande.statut = 'Approuvée';  // Avec majuscule et accent
+    
+    const updated = await this.demandeRepository.save(demande);
+    
+    console.log(`Nouveau statut: ${updated.statut}`);
+    console.log(`=====================================\n`);
+
+    return updated;
+  }
+
+  // ✅ NOUVELLE MÉTHODE : Refuser une demande
+  async refuser(id: string, motif_refus: string): Promise<DemandeMateriel> {
+    console.log(`\n❌ === REFUS DEMANDE ${id} ===`);
+    
+    const demande = await this.findOne(id);
+    console.log(`Statut actuel: ${demande.statut}`);
+    console.log(`Motif refus: ${motif_refus}`);
+
+    if (demande.statut !== 'en_attente') {
+      throw new BadRequestException(`Impossible de refuser. Statut actuel: ${demande.statut}`);
+    }
+
+    if (!motif_refus) {
+      throw new BadRequestException('Le motif de refus est obligatoire');
+    }
+
+    // ✅ Mettre à jour avec le bon statut
+    demande.statut = 'Refusée';  // Avec majuscule et accent
+    demande.motif_refus = motif_refus;
+    
+    const updated = await this.demandeRepository.save(demande);
+    
+    console.log(`Nouveau statut: ${updated.statut}`);
+    console.log(`===================================\n`);
+
+    return updated;
+  }
+
+  // ✅ ANCIENNE MÉTHODE : Garder pour compatibilité mais corriger le statut
   async updateStatut(
     id: string, 
-    statut: 'approuvee' | 'refusee', 
+    statut: 'Approuvée' | 'Refusée' | 'en_attente',  // ✅ Corriger le type
     motif_refus?: string
   ): Promise<DemandeMateriel> {
     const demande = await this.findOne(id);
     
-    if (statut !== 'approuvee' && statut !== 'refusee') {
+    if (statut !== 'Approuvée' && statut !== 'Refusée' && statut !== 'en_attente') {
       throw new HttpException('Statut invalide', HttpStatus.BAD_REQUEST);
     }
 
     demande.statut = statut;
     
-    if (statut === 'refusee' && motif_refus) {
+    if (statut === 'Refusée' && motif_refus) {
       demande.motif_refus = motif_refus;
     }
 
@@ -287,5 +336,29 @@ private async getLastDetailNumber(manager: any): Promise<number> {
 
     await this.detailRepository.remove(detail);
     return { success: true, message: 'Détail supprimé avec succès' };
+  }
+
+  // ✅ NOUVELLE MÉTHODE : Statistiques
+  async getStatistiques() {
+    const total = await this.demandeRepository.count();
+    
+    const enAttente = await this.demandeRepository.count({
+      where: { statut: 'en_attente' }
+    });
+    
+    const approuvees = await this.demandeRepository.count({
+      where: { statut: 'Approuvée' }
+    });
+    
+    const refusees = await this.demandeRepository.count({
+      where: { statut: 'Refusée' }
+    });
+
+    return {
+      total,
+      en_attente: enAttente,
+      approuvees,
+      refusees,
+    };
   }
 }

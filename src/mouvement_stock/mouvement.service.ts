@@ -179,66 +179,75 @@ async create(mouvementData: {
   return savedMouvement;
 }
 
-  private async updateInventaireWithValeur(
-    inventaire: Inventaire,
-    type_mouvement: MouvementType,
-    quantite: number,
-    valeur_mouvement: number | null,
-  ) {
-    const valeur_actuelle = Number(inventaire.valeur_stock || 0);
-    const quantite_actuelle = Number(inventaire.quantite_stock || 0);
+ private async updateInventaireWithValeur(
+  inventaire: Inventaire,
+  type_mouvement: MouvementType,
+  quantite: number,
+  valeur_mouvement: number | null,
+) {
+  // ✅ FORCER EN NUMBER dès le début
+  const valeur_actuelle = Number(inventaire.valeur_stock || 0);
+  const quantite_actuelle = Number(inventaire.quantite_stock || 0);
+  const quantite_num = Number(quantite);
+  const valeur_mouv = Number(valeur_mouvement || 0);
 
-    let nouvelle_valeur = valeur_actuelle;
-    let nouvelle_quantite = quantite_actuelle;
+  let nouvelle_valeur = valeur_actuelle;
+  let nouvelle_quantite = quantite_actuelle;
 
-    if (type_mouvement === MouvementType.ENTREE) {
-      if (valeur_mouvement) {
-        nouvelle_valeur = valeur_actuelle + valeur_mouvement;
-        nouvelle_quantite = quantite_actuelle + quantite;
-      }
-      console.log(`💰 ENTRÉE - Valeur avant: ${valeur_actuelle} → après: ${nouvelle_valeur}`);
-    } else if (type_mouvement === MouvementType.SORTIE) {
-      const cump_actuel = quantite_actuelle > 0 ? valeur_actuelle / quantite_actuelle : 0;
-      const valeur_sortie = quantite * cump_actuel;
-      nouvelle_valeur = valeur_actuelle - valeur_sortie;
-      nouvelle_quantite = quantite_actuelle - quantite;
-      console.log(`💸 SORTIE - CUMP: ${cump_actuel.toFixed(2)} - Valeur sortie: ${valeur_sortie.toFixed(2)}`);
-      console.log(`   Valeur avant: ${valeur_actuelle} → après: ${nouvelle_valeur.toFixed(2)}`);
-    }
-
-    await this.inventaireRepository.update(inventaire.id, {
-      quantite_stock: nouvelle_quantite,
-      valeur_stock: nouvelle_valeur,
-      quantite_disponible: nouvelle_quantite - (inventaire.quantite_reservee || 0),
-      date_mise_a_jour: new Date(),
-    });
-
-    console.log(`✅ Inventaire mis à jour : qté=${nouvelle_quantite}, valeur=${nouvelle_valeur.toFixed(2)} Ar`);
-    console.log(
-      `   CUMP actuel : ${
-        nouvelle_quantite > 0 ? (nouvelle_valeur / nouvelle_quantite).toFixed(2) : 0
-      } Ar/unité`,
-    );
+  if (type_mouvement === MouvementType.ENTREE) {
+    nouvelle_valeur = valeur_actuelle + valeur_mouv;
+    nouvelle_quantite = quantite_actuelle + quantite_num;  // ✅ Addition numérique
+    
+    console.log(`💰 ENTRÉE - Valeur avant: ${valeur_actuelle} → après: ${nouvelle_valeur}`);
+    console.log(`📦 Quantité avant: ${quantite_actuelle} → après: ${nouvelle_quantite}`);
+  } else if (type_mouvement === MouvementType.SORTIE) {
+    const cump_actuel = quantite_actuelle > 0 ? valeur_actuelle / quantite_actuelle : 0;
+    const valeur_sortie = quantite_num * cump_actuel;
+    nouvelle_valeur = valeur_actuelle - valeur_sortie;
+    nouvelle_quantite = quantite_actuelle - quantite_num;  // ✅ Soustraction numérique
+    
+    console.log(`💸 SORTIE - CUMP: ${cump_actuel.toFixed(2)} - Valeur sortie: ${valeur_sortie.toFixed(2)}`);
+    console.log(`   Valeur avant: ${valeur_actuelle} → après: ${nouvelle_valeur.toFixed(2)}`);
+    console.log(`📦 Quantité avant: ${quantite_actuelle} → après: ${nouvelle_quantite}`);
   }
 
-  private calculateNewStock(
-    stock_avant: number,
-    type_mouvement: MouvementType,
-    quantite: number,
-  ): number {
-    switch (type_mouvement) {
-      case MouvementType.ENTREE:
-        return stock_avant + quantite;
-      case MouvementType.SORTIE:
-        return stock_avant - quantite;
-      case MouvementType.TRANSFERT:
-      case MouvementType.RESERVATION:
-      case MouvementType.DERESERVATION:
-      case MouvementType.AUTRE:
-      default:
-        return stock_avant;
-    }
+  // ✅ Mise à jour avec conversion explicite
+  await this.inventaireRepository.update(inventaire.id, {
+    quantite_stock: Number(nouvelle_quantite),  // ✅ FORCER en number
+    valeur_stock: Number(nouvelle_valeur),
+    quantite_disponible: Number(nouvelle_quantite) - Number(inventaire.quantite_reservee || 0),
+    date_mise_a_jour: new Date(),
+  });
+
+  console.log(`✅ Inventaire mis à jour : qté=${nouvelle_quantite}, valeur=${nouvelle_valeur.toFixed(2)} Ar`);
+  console.log(
+    `   CUMP actuel : ${
+      nouvelle_quantite > 0 ? (nouvelle_valeur / nouvelle_quantite).toFixed(2) : 0
+    } Ar/unité`,
+  );
+}
+
+
+private calculateNewStock(
+  stock_avant: number,
+  type_mouvement: MouvementType,
+  quantite: number,
+): number {
+  switch (type_mouvement) {
+    case MouvementType.ENTREE:
+      return stock_avant + quantite;
+    case MouvementType.SORTIE:
+      return stock_avant - quantite;
+    case MouvementType.RESERVATION:
+    case MouvementType.DERESERVATION:
+    case MouvementType.TRANSFERT:
+    case MouvementType.AUTRE:
+    default:
+      // ✅ Ces mouvements ne changent pas le stock physique
+      return stock_avant;
   }
+}
+
 
   async getCUMP(id_materiel: string): Promise<number> {
     const inventaire = await this.inventaireRepository.findOne({

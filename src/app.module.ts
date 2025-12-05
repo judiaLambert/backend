@@ -24,6 +24,7 @@ import { CommissionModule } from './commission_recensement/commission.module';
 import { ResultatRecensementModule } from './resultat_recensement/resultat.module';
 import { JournalModule } from './journal/journal.module';
 import { RedditionAnnuelleModule } from './reddition_annuelle/reddition.module';
+import {FicheDetenteurModule} from './ficheDetenteur/fiche.module'
 
 @Module({
   imports: [connexionModule, TypeDepartementModule,
@@ -32,7 +33,8 @@ import { RedditionAnnuelleModule } from './reddition_annuelle/reddition.module';
     AcquisitionModule,ApprovisionnementModule,DetailApprovisionnementModule,
     DemandeModule,DetailDemandeModule,AttributionModule,DepannageModule,
     InventaireModule,MouvementStockModule,AuthModule,TypeComptabiliteModule,
-  CommissionModule,ResultatRecensementModule,JournalModule,RedditionAnnuelleModule],
+  CommissionModule,ResultatRecensementModule,JournalModule,RedditionAnnuelleModule,
+FicheDetenteurModule],
   controllers: [AppController],
   providers: [AppService],
 })

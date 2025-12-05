@@ -49,7 +49,6 @@ export class DepannageController {
     return await this.depannageService.findByMateriel(id_materiel);
   }
 
-  // ✅ NOUVELLE ROUTE : Obtenir les infos d'inventaire
   @Get('inventaire-infos/:id_materiel')
   async getInventaireInfos(@Param('id_materiel') id_materiel: string) {
     return await this.depannageService.getInventaireInfos(id_materiel);

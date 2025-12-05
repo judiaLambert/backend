@@ -81,3 +81,9 @@ export class ResultatRecensementController {
     return { message: 'Résultat supprimé avec succès' };
   }
 }
+
+
+
+
+
+

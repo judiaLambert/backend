@@ -1,18 +1,27 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AttributionController } from './attribution.controller';
 import { AttributionService } from './attribution.service';
 import { Attribution } from './attribution.entity';
-import { DemandeMateriel } from '../demande_materiel/demande.entity';
-import { DetailDemande } from '../detail_demande/detail.entity';
+import { Materiel } from '../materiel/materiel.entity';
+import { Demandeur } from '../demandeur/demandeur.entity';
+import { MouvementStockModule } from '../mouvement_stock/mouvement.module';
 import { InventaireModule } from '../inventaire/inventaire.module';
-import { MouvementStockModule } from '../mouvement_stock/mouvement.module'; 
+import { DemandeMateriel } from '../demande_materiel/demande.entity';  
+import { DetailDemande } from '../detail_demande/detail.entity';  
+
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Attribution, DemandeMateriel, DetailDemande]),
-    InventaireModule,
-    MouvementStockModule, 
+    TypeOrmModule.forFeature([
+      Attribution,
+      Materiel,       
+      Demandeur,     
+      DemandeMateriel,
+      DetailDemande 
+    ]),
+    forwardRef(() => MouvementStockModule),
+    forwardRef(() => InventaireModule),
   ],
   controllers: [AttributionController],
   providers: [AttributionService],

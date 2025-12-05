@@ -17,13 +17,28 @@ export class GrandLivreService {
 
   // ✅ MÉTHODE PRINCIPALE : Créer ou mettre à jour le Grand Livre
   async createOrUpdateFromJournal(journal: Journal): Promise<GrandLivre | null> {
-    // Vérifier si le matériel est DURABLE
+    // ✅ FILTRAGE : Ignorer les mouvements sans impact financier
+    const typesAvecImpactFinancier = [
+      'APPROVISIONNEMENT',
+      'ATTRIBUTION_DEFINITIVE',
+      'MATERIEL_IRREPARABLE',
+      'CORRECTION_POSITIVE',
+      'CORRECTION_NEGATIVE',
+    ];
+
     if (!journal.mouvement || !journal.mouvement.materiel) {
       throw new Error(`Journal ${journal.id_journal} sans mouvement ou matériel associé`);
     }
 
+    // ✅ Ignorer RESERVATION et DERESERVATION (pannes temporaires)
+    if (!typesAvecImpactFinancier.includes(journal.mouvement.type_reference)) {
+      console.log(`⏭️  Type ${journal.mouvement.type_reference} ignoré (pas d'impact financier)`);
+      return null;
+    }
+
+    // ✅ Vérifier que c'est un matériel DURABLE
     if (journal.mouvement.materiel.categorie_materiel !== CategorieMateriel.DURABLE) {
-      console.log(`ℹ️ Matériel CONSOMMABLE - Pas de grand livre pour journal ${journal.id_journal}`);
+      console.log(`⏭️  Matériel CONSOMMABLE - Pas de grand livre`);
       return null;
     }
 
@@ -38,61 +53,92 @@ export class GrandLivreService {
     const isEntree = journal.mouvement.type_mouvement === 'ENTREE';
     const quantite = Number(journal.mouvement.quantite_mouvement) || 0;
 
-    console.log(`📊 Traitement journal ${journal.id_journal}:`);
-    console.log(`   Type: ${journal.mouvement.type_mouvement}`);
-    console.log(`   Quantité: ${quantite}`);
+    console.log(`\n📊 === TRAITEMENT GRAND LIVRE ===`);
+    console.log(`Journal: ${journal.id_journal}`);
+    console.log(`Matériel: ${id_materiel} - ${journal.mouvement.materiel.designation}`);
+    console.log(`Type: ${journal.mouvement.type_mouvement}`);
+    console.log(`Quantité: ${quantite}`);
 
     let valeur = 0;
 
     if (grandLivre) {
       // ✅ LIGNE EXISTE → MISE À JOUR
-      console.log(`🔄 Mise à jour Grand Livre pour matériel ${id_materiel}`);
+      console.log(`\n🔄 Mise à jour Grand Livre existant: ${grandLivre.id_grand_livre}`);
+      console.log(`État AVANT:`);
+      console.log(`  Qté entrée: ${grandLivre.quantite_entree}, Valeur entrée: ${grandLivre.valeur_entree}`);
+      console.log(`  Qté sortie: ${grandLivre.quantite_sortie}, Valeur sortie: ${grandLivre.valeur_sortie}`);
+      console.log(`  Qté restante: ${grandLivre.quantite_restante}, Valeur restante: ${grandLivre.valeur_restante}`);
 
       if (isEntree) {
         // ✅ ENTRÉE : Utiliser le prix unitaire du mouvement
         const prix_unitaire = Number(journal.mouvement.prix_unitaire) || 0;
         valeur = prix_unitaire * quantite;
         
-        console.log(`   ✅ ENTRÉE - Prix unitaire: ${prix_unitaire}`);
-        console.log(`   Valeur calculée: ${valeur}`);
+        console.log(`\n💰 ENTRÉE:`);
+        console.log(`  Prix unitaire: ${prix_unitaire.toLocaleString('fr-FR')} Ar`);
+        console.log(`  Quantité: ${quantite}`);
+        console.log(`  Valeur de cette entrée: ${valeur.toLocaleString('fr-FR')} Ar`);
 
-        grandLivre.quantite_entree += quantite;
-        grandLivre.valeur_entree += valeur;
+        // ✅ CORRECTION : Ajouter la valeur à valeur_entree
+        grandLivre.quantite_entree = Number(grandLivre.quantite_entree) + quantite;
+        grandLivre.valeur_entree = Number(grandLivre.valeur_entree) + valeur;  // ✅ ADDITION
+        
+        console.log(`  Nouvelle valeur entrée totale: ${grandLivre.valeur_entree.toLocaleString('fr-FR')} Ar`);
       } else {
         // ✅ SORTIE : Utiliser le CUMP actuel du Grand Livre
         const cump_actuel = grandLivre.quantite_restante > 0 
-          ? grandLivre.valeur_restante / grandLivre.quantite_restante 
+          ? Number(grandLivre.valeur_restante) / Number(grandLivre.quantite_restante)
           : 0;
         valeur = cump_actuel * quantite;
 
-        console.log(`   ✅ SORTIE - CUMP actuel: ${cump_actuel.toFixed(2)}`);
-        console.log(`   Valeur calculée: ${valeur.toFixed(2)}`);
+        console.log(`\n💸 SORTIE:`);
+        console.log(`  CUMP actuel: ${cump_actuel.toLocaleString('fr-FR', {minimumFractionDigits: 2})} Ar`);
+        console.log(`  Quantité: ${quantite}`);
+        console.log(`  Valeur de cette sortie: ${valeur.toLocaleString('fr-FR', {minimumFractionDigits: 2})} Ar`);
 
-        grandLivre.quantite_sortie += quantite;
-        grandLivre.valeur_sortie += valeur;
+        // ✅ CORRECTION : Ajouter la valeur à valeur_sortie
+        grandLivre.quantite_sortie = Number(grandLivre.quantite_sortie) + quantite;
+        grandLivre.valeur_sortie = Number(grandLivre.valeur_sortie) + valeur;  // ✅ ADDITION
+
+        console.log(`  Nouvelle valeur sortie totale: ${grandLivre.valeur_sortie.toLocaleString('fr-FR', {minimumFractionDigits: 2})} Ar`);
       }
 
-      // Recalculer les soldes
-      grandLivre.quantite_restante = grandLivre.quantite_entree - grandLivre.quantite_sortie;
-      grandLivre.valeur_restante = grandLivre.valeur_entree - grandLivre.valeur_sortie;
+      // ✅ Recalculer les soldes (restantes)
+      grandLivre.quantite_restante = Number(grandLivre.quantite_entree) - Number(grandLivre.quantite_sortie);
+      grandLivre.valeur_restante = Number(grandLivre.valeur_entree) - Number(grandLivre.valeur_sortie);
+
+      // ✅ S'assurer que les valeurs ne deviennent pas négatives
+      if (grandLivre.quantite_restante < 0) {
+        console.warn(`⚠️ Quantité restante négative détectée: ${grandLivre.quantite_restante}`);
+      }
+      if (grandLivre.valeur_restante < 0) {
+        console.warn(`⚠️ Valeur restante négative détectée: ${grandLivre.valeur_restante}`);
+        grandLivre.valeur_restante = 0;
+      }
 
       // Mettre à jour l'observation avec le dernier journal
       grandLivre.id_journal = journal.id_journal;
       grandLivre.observation = `Dernière opération : ${journal.mouvement.type_mouvement} - ${journal.mouvement.materiel.designation} (${new Date().toLocaleDateString('fr-FR')})`;
 
       await this.grandLivreRepository.save(grandLivre);
-      console.log(`✅ Grand Livre mis à jour : ${grandLivre.id_grand_livre}`);
-      console.log(`   Quantité entrée totale: ${grandLivre.quantite_entree}`);
-      console.log(`   Valeur entrée totale: ${grandLivre.valeur_entree.toFixed(2)}`);
-      console.log(`   Quantité sortie totale: ${grandLivre.quantite_sortie}`);
-      console.log(`   Valeur sortie totale: ${grandLivre.valeur_sortie.toFixed(2)}`);
-      console.log(`   Quantité restante: ${grandLivre.quantite_restante}`);
-      console.log(`   Valeur restante: ${grandLivre.valeur_restante.toFixed(2)}`);
-      console.log(`   CUMP nouveau: ${grandLivre.quantite_restante > 0 ? (grandLivre.valeur_restante / grandLivre.quantite_restante).toFixed(2) : 0}`);
+      
+      const cump_nouveau = grandLivre.quantite_restante > 0 
+        ? grandLivre.valeur_restante / grandLivre.quantite_restante 
+        : 0;
+
+      console.log(`\n✅ État APRÈS:`);
+      console.log(`  Qté entrée totale: ${grandLivre.quantite_entree}`);
+      console.log(`  Valeur entrée totale: ${grandLivre.valeur_entree.toLocaleString('fr-FR', {minimumFractionDigits: 2})} Ar`);
+      console.log(`  Qté sortie totale: ${grandLivre.quantite_sortie}`);
+      console.log(`  Valeur sortie totale: ${grandLivre.valeur_sortie.toLocaleString('fr-FR', {minimumFractionDigits: 2})} Ar`);
+      console.log(`  Qté restante: ${grandLivre.quantite_restante}`);
+      console.log(`  Valeur restante: ${grandLivre.valeur_restante.toLocaleString('fr-FR', {minimumFractionDigits: 2})} Ar`);
+      console.log(`  CUMP: ${cump_nouveau.toLocaleString('fr-FR', {minimumFractionDigits: 2})} Ar/unité`);
+      console.log(`===================================\n`);
 
     } else {
       // ✅ PREMIÈRE LIGNE → CRÉATION
-      console.log(`➕ Création Grand Livre pour matériel ${id_materiel}`);
+      console.log(`\n➕ Création première ligne Grand Livre`);
 
       const id_grand_livre = await this.generateId();
 
@@ -101,8 +147,10 @@ export class GrandLivreService {
         const prix_unitaire = Number(journal.mouvement.prix_unitaire) || 0;
         valeur = prix_unitaire * quantite;
 
-        console.log(`   ✅ Première ENTRÉE - Prix unitaire: ${prix_unitaire}`);
-        console.log(`   Valeur calculée: ${valeur}`);
+        console.log(`💰 Première ENTRÉE:`);
+        console.log(`  Prix unitaire: ${prix_unitaire.toLocaleString('fr-FR')} Ar`);
+        console.log(`  Quantité: ${quantite}`);
+        console.log(`  Valeur totale: ${valeur.toLocaleString('fr-FR')} Ar`);
 
         grandLivre = this.grandLivreRepository.create({
           id_grand_livre,
@@ -118,7 +166,7 @@ export class GrandLivreService {
         });
       } else {
         // ⚠️ Première opération = SORTIE (anormal mais on gère)
-        console.warn(`⚠️ Première opération est une SORTIE pour ${id_materiel} - Stock initialisé à 0`);
+        console.warn(`⚠️ Première opération est une SORTIE (anormal)`);
 
         grandLivre = this.grandLivreRepository.create({
           id_grand_livre,
@@ -135,9 +183,11 @@ export class GrandLivreService {
       }
 
       await this.grandLivreRepository.save(grandLivre);
+      
       console.log(`✅ Grand Livre créé : ${grandLivre.id_grand_livre}`);
-      console.log(`   Quantité restante: ${grandLivre.quantite_restante}`);
-      console.log(`   Valeur restante: ${grandLivre.valeur_restante.toFixed(2)}`);
+      console.log(`  Qté restante: ${grandLivre.quantite_restante}`);
+      console.log(`  Valeur restante: ${grandLivre.valeur_restante.toLocaleString('fr-FR', {minimumFractionDigits: 2})} Ar`);
+      console.log(`===================================\n`);
     }
 
     return grandLivre;
@@ -158,7 +208,6 @@ export class GrandLivreService {
     return `GL${newNumber.toString().padStart(3, '0')}`;
   }
 
-  // ✅ Liste de toutes les lignes (une par matériel)
   async findAll() {
     return await this.grandLivreRepository.find({
       relations: ['materiel', 'materiel.typeMateriel', 'journal', 'journal.mouvement'],
@@ -166,7 +215,6 @@ export class GrandLivreService {
     });
   }
 
-  // Grand Livre d'un matériel spécifique
   async findByMateriel(id_materiel: string) {
     return await this.grandLivreRepository.findOne({
       where: { id_materiel },
@@ -187,7 +235,6 @@ export class GrandLivreService {
     return entry;
   }
 
-  // Statistiques globales
   async getStatistiques() {
     const result = await this.grandLivreRepository
       .createQueryBuilder('gl')
@@ -202,24 +249,21 @@ export class GrandLivreService {
 
     return {
       nombreMateriels: parseInt(result.nombreMateriels, 10) || 0,
-      totalEntrees: parseInt(result.totalEntrees, 10) || 0,
-      totalSorties: parseInt(result.totalSorties, 10) || 0,
+      totalEntrees: parseFloat(result.totalEntrees) || 0,
+      totalSorties: parseFloat(result.totalSorties) || 0,
       valeurTotaleEntrees: parseFloat(result.valeurTotaleEntrees) || 0,
       valeurTotaleSorties: parseFloat(result.valeurTotaleSorties) || 0,
-      soldeQuantite: parseInt(result.soldeQuantite, 10) || 0,
+      soldeQuantite: parseFloat(result.soldeQuantite) || 0,
       soldeValeur: parseFloat(result.soldeValeur) || 0,
     };
   }
 
-  // Régénération complète depuis tous les journaux validés
   async regenererTout(): Promise<GenerationResult> {
-    console.log(`🔄 Régénération complète du grand livre...`);
+    console.log(`\n🔄 === RÉGÉNÉRATION COMPLÈTE DU GRAND LIVRE ===`);
 
-    // Vider le grand livre
     await this.grandLivreRepository.clear();
-    console.log(`🗑️ Grand livre vidé`);
+    console.log(`🗑️  Grand livre vidé`);
 
-    // Récupérer TOUS les journaux validés par ordre chronologique
     const journauxValides = await this.journalRepository
       .createQueryBuilder('journal')
       .leftJoinAndSelect('journal.mouvement', 'mouvement')
@@ -232,7 +276,7 @@ export class GrandLivreService {
       .orderBy('journal.date_validation', 'ASC')
       .getMany();
 
-    console.log(`📊 ${journauxValides.length} journaux validés trouvés`);
+    console.log(`📊 ${journauxValides.length} journaux validés trouvés\n`);
 
     const results: GenerationResult = {
       total: journauxValides.length,
@@ -242,7 +286,6 @@ export class GrandLivreService {
       details: [],
     };
 
-    // Traiter chaque journal dans l'ordre chronologique
     for (const journal of journauxValides) {
       try {
         const grandLivre = await this.createOrUpdateFromJournal(journal);
@@ -256,7 +299,7 @@ export class GrandLivreService {
           });
         }
       } catch (error: any) {
-        console.error(`❌ Erreur pour journal ${journal.id_journal}:`, error);
+        console.error(`❌ Erreur pour journal ${journal.id_journal}:`, error.message);
         results.erreurs++;
         results.details.push({
           journal: journal.id_journal,
@@ -266,16 +309,19 @@ export class GrandLivreService {
       }
     }
 
-    console.log(`✅ Régénération terminée : ${results.crees} mouvements traités, ${results.erreurs} erreurs`);
+    console.log(`\n✅ Régénération terminée :`);
+    console.log(`   ${results.crees} mouvements traités`);
+    console.log(`   ${results.erreurs} erreurs`);
+    console.log(`===================================\n`);
+    
     return results;
   }
 
-  // Régénération pour une période
   async genererGrandLivrePourPeriode(
     dateDebut: Date,
     dateFin: Date,
   ): Promise<GenerationResult> {
-    console.log(`📊 Génération pour période du ${dateDebut.toISOString()} au ${dateFin.toISOString()}`);
+    console.log(`📊 Génération pour période du ${dateDebut.toLocaleDateString('fr-FR')} au ${dateFin.toLocaleDateString('fr-FR')}`);
 
     const journauxValides = await this.journalRepository
       .createQueryBuilder('journal')
@@ -314,7 +360,7 @@ export class GrandLivreService {
           });
         }
       } catch (error: any) {
-        console.error(` Erreur pour journal ${journal.id_journal}:`, error);
+        console.error(` Erreur pour journal ${journal.id_journal}:`, error.message);
         results.erreurs++;
         results.details.push({
           journal: journal.id_journal,
