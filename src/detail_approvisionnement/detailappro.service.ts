@@ -1,8 +1,12 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DetailApprovisionnement } from './detailappro.entity';
 import { MouvementStockService } from '../mouvement_stock/mouvement.service';
+import { InventaireService } from '../inventaire/inventaire.service';
+import { FournisseurTypeMaterielService } from '../fournisseur_typemateriel/fournisseurtype.service';
+import { MaterielService } from '../materiel/materiel.service';
+import { ApprovisionnementService } from '../approvisionnement/approvisionnement.service';
 import { MouvementType } from '../mouvement_stock/mouvement.entity';
 
 @Injectable()
@@ -10,7 +14,16 @@ export class DetailApprovisionnementService {
   constructor(
     @InjectRepository(DetailApprovisionnement)
     private detailApproRepository: Repository<DetailApprovisionnement>,
+    @Inject(forwardRef(() => MouvementStockService))
     private mouvementService: MouvementStockService,
+    @Inject(forwardRef(() => InventaireService))
+    private inventaireService: InventaireService,
+    @Inject(forwardRef(() => FournisseurTypeMaterielService))
+    private fournisseurTypeService: FournisseurTypeMaterielService,
+    @Inject(forwardRef(() => MaterielService))
+    private materielService: MaterielService,
+    @Inject(forwardRef(() => ApprovisionnementService))
+    private approvisionnementService: ApprovisionnementService,
   ) {}
 
   async generateId(): Promise<string> {
@@ -36,6 +49,8 @@ export class DetailApprovisionnementService {
     prixUnitaire: number, 
     quantiteTotal?: number
   ) {
+    console.log('\n📦 === CRÉATION DÉTAIL APPROVISIONNEMENT ===');
+    
     if (quantiteRecu <= 0) {
       throw new BadRequestException('La quantité reçue doit être supérieure à 0');
     }
@@ -61,6 +76,35 @@ export class DetailApprovisionnementService {
     });
 
     const saved = await this.detailApproRepository.save(detailAppro);
+    console.log(`✅ Détail créé: ${saved.id}`);
+
+    // ✅ CRÉER L'ASSOCIATION FOURNISSEUR ↔ TYPE MATÉRIEL
+    try {
+      // Récupérer le matériel pour obtenir son type
+      const materiel = await this.materielService.findOne(idMateriel);
+      if (!materiel) {
+        throw new NotFoundException(`Matériel ${idMateriel} non trouvé`);
+      }
+
+      // Récupérer l'approvisionnement pour obtenir l'acquisition et le fournisseur
+      const approvisionnement = await this.approvisionnementService.findOne(idAppro);
+      if (!approvisionnement) {
+        throw new NotFoundException(`Approvisionnement ${idAppro} non trouvé`);
+      }
+
+      // Vérifier que l'acquisition et le fournisseur existent
+      if (approvisionnement.acquisition && approvisionnement.acquisition.fournisseur && materiel.typeMateriel) {
+        await this.fournisseurTypeService.createAssociation(
+          approvisionnement.acquisition.fournisseur.id,
+          materiel.typeMateriel.id,
+          `Fourniture ${materiel.designation} - ${new Date().toLocaleDateString('fr-FR')}`
+        );
+        console.log(`🔗 Association créée: ${approvisionnement.acquisition.fournisseur.nom} ↔ ${materiel.typeMateriel.designation}`);
+      }
+    } catch (err) {
+      console.error('⚠️ Erreur création association:', err.message);
+      // Ne pas bloquer la création du détail
+    }
 
     // ✅ MOUVEMENT ENTREE
     await this.mouvementService.create({
@@ -73,8 +117,9 @@ export class DetailApprovisionnementService {
       motif: `Approvisionnement ${idAppro} - Réception de ${quantiteRecu} unités`,
       utilisateur: 'system',
     });
+    console.log(`📊 Mouvement ENTREE créé: +${quantiteRecu} unités`);
 
-    console.log(`✅ Détail créé + Mouvement ENTREE`);
+    console.log('=====================================\n');
 
     return saved;
   }
@@ -175,7 +220,7 @@ export class DetailApprovisionnementService {
 
   async findAll() {
     return await this.detailApproRepository.find({
-      relations: ['materiel', 'materiel.typeMateriel', 'approvisionnement', 'approvisionnement.acquisition'],
+      relations: ['materiel', 'materiel.typeMateriel', 'approvisionnement', 'approvisionnement.acquisition', 'approvisionnement.acquisition.fournisseur'],
       order: { id: 'ASC' }
     });
   }
@@ -183,7 +228,7 @@ export class DetailApprovisionnementService {
   async findOne(id: string) {
     const detail = await this.detailApproRepository.findOne({
       where: { id },
-      relations: ['materiel', 'materiel.typeMateriel', 'approvisionnement', 'approvisionnement.acquisition'],
+      relations: ['materiel', 'materiel.typeMateriel', 'approvisionnement', 'approvisionnement.acquisition', 'approvisionnement.acquisition.fournisseur'],
     });
 
     if (!detail) {
@@ -196,7 +241,7 @@ export class DetailApprovisionnementService {
   async findByApprovisionnement(approId: string) {
     return await this.detailApproRepository.find({
       where: { approvisionnement: { id: approId } },
-      relations: ['materiel', 'materiel.typeMateriel', 'approvisionnement', 'approvisionnement.acquisition'],
+      relations: ['materiel', 'materiel.typeMateriel', 'approvisionnement', 'approvisionnement.acquisition', 'approvisionnement.acquisition.fournisseur'],
       order: { id: 'ASC' }
     });
   }

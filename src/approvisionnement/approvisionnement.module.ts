@@ -1,15 +1,13 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Approvisionnement } from './aprrovisionnement.entity';
 import { ApprovisionnementService } from './approvisionnement.service';
 import { ApprovisionnementController } from './approvisionnement.controller';
-import { Acquisition } from '../acquisition/acquisition.entity';
-
-import { MouvementStockModule } from '../mouvement_stock/mouvement.module';
+import { Approvisionnement } from './aprrovisionnement.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Approvisionnement, Acquisition]),MouvementStockModule],
-  providers: [ApprovisionnementService],
+  imports: [TypeOrmModule.forFeature([Approvisionnement])],
   controllers: [ApprovisionnementController],
+  providers: [ApprovisionnementService],
+  exports: [ApprovisionnementService, TypeOrmModule],  // ✅ Exporter
 })
 export class ApprovisionnementModule {}

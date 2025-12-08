@@ -25,7 +25,7 @@ import { ResultatRecensementModule } from './resultat_recensement/resultat.modul
 import { JournalModule } from './journal/journal.module';
 import { RedditionAnnuelleModule } from './reddition_annuelle/reddition.module';
 import {FicheDetenteurModule} from './ficheDetenteur/fiche.module'
-
+import { FournisseurTypeMaterielModule } from './fournisseur_typemateriel/fournisseurtype.module';
 @Module({
   imports: [connexionModule, TypeDepartementModule,
     DepartementModule, DemandeurModule,TypeMaterielModule
@@ -34,7 +34,7 @@ import {FicheDetenteurModule} from './ficheDetenteur/fiche.module'
     DemandeModule,DetailDemandeModule,AttributionModule,DepannageModule,
     InventaireModule,MouvementStockModule,AuthModule,TypeComptabiliteModule,
   CommissionModule,ResultatRecensementModule,JournalModule,RedditionAnnuelleModule,
-FicheDetenteurModule],
+FicheDetenteurModule,FournisseurTypeMaterielModule],
   controllers: [AppController],
   providers: [AppService],
 })

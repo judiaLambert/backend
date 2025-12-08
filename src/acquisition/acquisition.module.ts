@@ -1,13 +1,19 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Acquisition } from './acquisition.entity';
 import { AcquisitionService } from './acquisition.service';
 import { AcquisitionController } from './acquisition.controller';
-import { Fournisseur } from '../fournisseur/fournisseur.entity';
+import { Acquisition } from './acquisition.entity';
+import { MaterielModule } from '../materiel/materiel.module';
+import { FournisseurTypeMaterielModule } from '../fournisseur_typemateriel/fournisseurtype.module'; 
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Acquisition, Fournisseur])],
-  providers: [AcquisitionService],
+  imports: [
+    TypeOrmModule.forFeature([Acquisition]),
+    forwardRef(() => MaterielModule),
+    FournisseurTypeMaterielModule, 
+  ],
   controllers: [AcquisitionController],
+  providers: [AcquisitionService],
+  exports: [AcquisitionService],
 })
 export class AcquisitionModule {}

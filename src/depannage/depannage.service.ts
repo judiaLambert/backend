@@ -44,11 +44,28 @@ export class DepannageService {
   ) {
     const id = await this.generateId();
 
+    // ✅ CORRECTION: Valider et normaliser la date
+    let dateSignalementValide: Date;
+    
+    if (!date_signalement) {
+      dateSignalementValide = new Date();
+    } else if (typeof date_signalement === 'string') {
+      dateSignalementValide = new Date(date_signalement);
+    } else {
+      dateSignalementValide = date_signalement;
+    }
+
+    // Vérifier que la date est valide
+    if (isNaN(dateSignalementValide.getTime())) {
+      console.error('❌ Date invalide reçue:', date_signalement);
+      dateSignalementValide = new Date(); // Utiliser date actuelle en fallback
+    }
+
     console.log('📝 Création dépannage avec:', {
       id,
       id_materiel,
       id_demandeur,
-      date_signalement,
+      date_signalement: dateSignalementValide.toISOString(),
       description_panne,
       statut_depannage,
     });
@@ -57,7 +74,7 @@ export class DepannageService {
       id,
       materiel: { id: id_materiel } as any,
       demandeur: { id_demandeur: id_demandeur } as any,
-      date_signalement,
+      date_signalement: dateSignalementValide,
       description_panne,
       statut_depannage,
     });
@@ -99,12 +116,29 @@ export class DepannageService {
     const ancien_statut = depannage.statut_depannage;
     const nouveau_statut = updateDepannageDto.statut_depannage;
 
+    // ✅ CORRECTION: Valider la date si elle est fournie
+    if (updateDepannageDto.date_signalement) {
+      let dateTest: Date;
+      if (typeof updateDepannageDto.date_signalement === 'string') {
+        dateTest = new Date(updateDepannageDto.date_signalement);
+      } else {
+        dateTest = updateDepannageDto.date_signalement;
+      }
+      
+      if (isNaN(dateTest.getTime())) {
+        console.error('❌ Date invalide dans update:', updateDepannageDto.date_signalement);
+        delete updateDepannageDto.date_signalement; // Ignorer la date invalide
+      } else {
+        updateDepannageDto.date_signalement = dateTest;
+      }
+    }
+
     await this.depannageRepository.update(id, updateDepannageDto);
 
     if (ancien_statut !== nouveau_statut) {
       // ✅ Cas 1 : Passage en cours (pas de nouveau mouvement)
       if (nouveau_statut === 'En cours') {
-        console.log('🔄 Passage en cours de réparation');
+        console.log(' Passage en cours de réparation');
       }
       
       // ✅ Cas 2 : Résolution → DERESERVATION (retour sortie temporaire)
@@ -177,7 +211,7 @@ export class DepannageService {
     });
   }
 
-  // ✅ MÉTHODE MANQUANTE : findByStatut
+
   async findByStatut(statut: string) {
     return await this.depannageRepository.find({
       where: { statut_depannage: statut },
@@ -186,7 +220,7 @@ export class DepannageService {
     });
   }
 
-  // ✅ MÉTHODE MANQUANTE : findByDemandeur
+  
   async findByDemandeur(id_demandeur: string) {
     return await this.depannageRepository.find({
       where: { demandeur: { id_demandeur: id_demandeur } },
@@ -195,7 +229,7 @@ export class DepannageService {
     });
   }
 
-  // ✅ MÉTHODE MANQUANTE : getInventaireInfos
+
   async getInventaireInfos(id_materiel: string) {
     const inventaire = await this.inventaireService.findByMateriel(id_materiel);
     
@@ -237,18 +271,18 @@ export class DepannageService {
     };
   }
 
-  // ✅ MÉTHODE MANQUANTE : remove
+
   async remove(id: string) {
     const depannage = await this.findOne(id);
 
-    // ✅ Vérifier que le dépannage n'est pas en cours
+    // Vérifier que le dépannage n'est pas en cours
     if (depannage.statut_depannage === 'En cours') {
       throw new BadRequestException(
         'Impossible de supprimer un dépannage en cours de traitement'
       );
     }
 
-    // ✅ Si le dépannage était signalé mais pas encore résolu, annuler la réservation
+    //  Si le dépannage était signalé mais pas encore résolu, annuler la réservation
     if (depannage.statut_depannage === 'Signalé') {
       // Créer un mouvement DERESERVATION pour annuler
       await this.mouvementService.create({

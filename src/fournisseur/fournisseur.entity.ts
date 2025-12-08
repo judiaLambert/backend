@@ -1,5 +1,5 @@
-import { Entity, PrimaryColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
-import { TypeMateriel } from '../typemateriel/typemateriel.entity';
+import { Entity, PrimaryColumn, Column, OneToMany } from 'typeorm';
+import { FournisseurTypeMateriel } from '../fournisseur_typemateriel/fournisseurtype.entity';
 
 @Entity('fournisseur')
 export class Fournisseur {
@@ -24,10 +24,7 @@ export class Fournisseur {
   @Column({ name: 'email', nullable: true })
   email: string;
 
-  @ManyToOne(() => TypeMateriel)
-  @JoinColumn({ name: 'id_typemateriel' })
-  typeMateriel: TypeMateriel;
-
-  @Column({ name: 'date_livraison', type: 'date' })
-  dateLivraison: Date;
+  // ✅ Relation N-N via table d'association
+  @OneToMany(() => FournisseurTypeMateriel, ftm => ftm.fournisseur)
+  typesMateriels: FournisseurTypeMateriel[];
 }
