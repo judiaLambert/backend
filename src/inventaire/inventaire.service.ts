@@ -36,7 +36,7 @@ export class InventaireService {
     return `INV${newNumber.toString().padStart(3, '0')}`;
   }
 
-  // 🔍 Calcule la quantité et la valeur initiales depuis les appro
+  //  Calcule la quantité et la valeur initiales depuis les appro
   private async getStockInitialFromAppro(id_materiel: string) {
     const res = await this.detailApproRepo
       .createQueryBuilder('detail')
