@@ -1,10 +1,14 @@
+// src/reddition_annuelle/reddition.service.ts
+
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { RedditionAnnuelle, StatutReddition } from './reddition.entity';
 import { GrandLivre } from '../grand_livre/livre.entity';
 import { ResultatRecensement } from '../resultat_recensement/resultat.entity';
-import { GenerationRedditionResult } from './reddition.types';
+import { Attribution } from '../attribution/attribution.entity';
+import { Depannage } from '../depannage/depannage.entity';
+import { GenerationRedditionResult, DetailCompletReddition } from './reddition.types';
 
 @Injectable()
 export class RedditionAnnuelleService {
@@ -15,6 +19,11 @@ export class RedditionAnnuelleService {
     private grandLivreRepository: Repository<GrandLivre>,
     @InjectRepository(ResultatRecensement)
     private resultatRecensementRepository: Repository<ResultatRecensement>,
+    // ✅ NOUVEAU : Injection des repositories Attribution et Depannage
+    @InjectRepository(Attribution)
+    private attributionRepository: Repository<Attribution>,
+    @InjectRepository(Depannage)
+    private depannageRepository: Repository<Depannage>,
   ) {}
 
   async generateId(): Promise<string> {
@@ -42,7 +51,6 @@ export class RedditionAnnuelleService {
       details: [],
     };
 
-    // ✅ Récupérer tous les résultats de recensement de l'année
     const resultatsRecensement = await this.resultatRecensementRepository.find({
       where: {
         date_recensement: Between(
@@ -58,7 +66,6 @@ export class RedditionAnnuelleService {
 
     for (const resultat of resultatsRecensement) {
       try {
-        // Trouver le dernier grand livre pour ce matériel
         const dernierGrandLivre = await this.grandLivreRepository.findOne({
           where: { id_materiel: resultat.inventaire.materiel.id },
           relations: ['materiel', 'journal'],
@@ -69,14 +76,12 @@ export class RedditionAnnuelleService {
           throw new Error(`Aucun grand livre trouvé pour ${resultat.inventaire.materiel.designation}`);
         }
 
-        // ✅ Calculer les écarts à partir du résultat de recensement
         const ecart_quantite = resultat.ecart_trouve;
-        const ecart_valeur = resultat.valeur_ecart; // Getter déjà calculé dans l'entité
+        const ecart_valeur = resultat.valeur_ecart;
         const taux_ecart = resultat.quantite_theorique > 0 
           ? (Math.abs(ecart_quantite) / resultat.quantite_theorique) * 100 
           : 0;
 
-        // Vérifier si une reddition existe déjà pour cette année + ce résultat
         const existante = await this.redditionRepository.findOne({
           where: {
             annee_validation: annee,
@@ -98,7 +103,7 @@ export class RedditionAnnuelleService {
           id_reddition,
           annee_validation: annee,
           grandLivre: dernierGrandLivre,
-          resultatRecensement: resultat, // ✅ Changé
+          resultatRecensement: resultat,
           statut: StatutReddition.EN_ATTENTE,
         });
 
@@ -277,75 +282,121 @@ export class RedditionAnnuelleService {
     };
   }
 
-  async getDetailComplet(id_reddition: string) {
-  const reddition = await this.findOne(id_reddition);
+  // ✅ MÉTHODE PRINCIPALE : Détail Complet avec Attributions et Dépannages
+  async getDetailComplet(id_reddition: string): Promise<DetailCompletReddition> {
+    const reddition = await this.findOne(id_reddition);
 
-  // ✅ VÉRIFICATION : Si pas de resultatRecensement, retourner un message d'erreur
-  if (!reddition.resultatRecensement) {
-    throw new BadRequestException(
-      `Cette reddition (${id_reddition}) a été créée avec l'ancienne structure. ` +
-      `Elle doit être supprimée et régénérée avec la nouvelle structure.`
-    );
+    if (!reddition.resultatRecensement) {
+      throw new BadRequestException(
+        `Cette reddition (${id_reddition}) a été créée avec l'ancienne structure. ` +
+        `Elle doit être supprimée et régénérée avec la nouvelle structure.`
+      );
+    }
+
+    const materielId = reddition.resultatRecensement.inventaire.materiel.id;
+    const annee = reddition.annee_validation;
+
+    // ✅ RÉCUPÉRER LES ATTRIBUTIONS DE L'ANNÉE
+    const attributions = await this.attributionRepository.find({
+      where: {
+        materiel: { id: materielId },
+        date_attribution: Between(
+          new Date(`${annee}-01-01`),
+          new Date(`${annee}-12-31`)
+        ),
+      },
+    });
+
+    const attributionsEnCours = attributions.filter(a => a.statut_attribution === 'en_cours').length;
+    const attributionsRetournees = attributions.filter(a => a.statut_attribution === 'retourne').length;
+    const quantiteTotaleAttribuee = attributions.reduce((sum, a) => sum + a.quantite_attribuee, 0);
+
+    // ✅ RÉCUPÉRER LES DÉPANNAGES DE L'ANNÉE
+    const depannages = await this.depannageRepository.find({
+      where: {
+        materiel: { id: materielId },
+        date_signalement: Between(
+          new Date(`${annee}-01-01`),
+          new Date(`${annee}-12-31`)
+        ),
+      },
+    });
+
+    const depannagesResolus = depannages.filter(d => d.statut_depannage === 'Résolu').length;
+    const depannagesEnCours = depannages.filter(d => d.statut_depannage === 'En cours').length;
+    const depannagesIrreparables = depannages.filter(d => d.statut_depannage === 'Irréparable').length;
+
+    // ✅ CALCUL DES ÉCARTS
+    const ecart_quantite = reddition.resultatRecensement.ecart_trouve;
+    const ecart_valeur = reddition.resultatRecensement.valeur_ecart;
+    const taux_ecart = reddition.resultatRecensement.quantite_theorique > 0
+      ? (Math.abs(ecart_quantite) / reddition.resultatRecensement.quantite_theorique) * 100
+      : 0;
+
+    const est_coherent = Math.abs(ecart_quantite) === 0 && Math.abs(ecart_valeur) < 1;
+    const niveau_alerte = taux_ecart > 10 ? 'CRITIQUE' : taux_ecart > 5 ? 'IMPORTANT' : taux_ecart > 0 ? 'MINEUR' : 'OK';
+
+    return {
+      id_reddition: reddition.id_reddition,
+      date_creation: reddition.date_creation,
+      annee_validation: reddition.annee_validation,
+      statut: reddition.statut,
+      date_validation: reddition.date_validation,
+      motif_rejet: reddition.motif_rejet,
+      materiel: {
+        designation: reddition.resultatRecensement.inventaire.materiel?.designation || '-',
+        type: reddition.resultatRecensement.inventaire.materiel?.typeMateriel?.designation || '-',
+      },
+      grand_livre: {
+        id: reddition.grandLivre.id_grand_livre,
+        date_enregistrement: reddition.grandLivre.date_enregistrement,
+        quantite_restante: reddition.grandLivre.quantite_restante,
+        valeur_restante: reddition.grandLivre.valeur_restante,
+        cump: reddition.grandLivre.cump,
+      },
+      resultat_recensement: {
+        id: reddition.resultatRecensement.id,
+        quantite_theorique: reddition.resultatRecensement.quantite_theorique,
+        quantite_physique: reddition.resultatRecensement.quantite_physique,
+        ecart_trouve: reddition.resultatRecensement.ecart_trouve,
+        valeur_systeme: reddition.resultatRecensement.valeur_systeme,
+        pu_systeme: reddition.resultatRecensement.pu_systeme,
+      },
+      // ✅ NOUVEAU : Statistiques Attributions
+      attributions: {
+        total: attributions.length,
+        en_cours: attributionsEnCours,
+        retournees: attributionsRetournees,
+        quantite_totale_attribuee: quantiteTotaleAttribuee,
+      },
+      // ✅ NOUVEAU : Statistiques Dépannages
+      depannages: {
+        total: depannages.length,
+        resolus: depannagesResolus,
+        en_cours: depannagesEnCours,
+        irreparables: depannagesIrreparables,
+      },
+      analyse: {
+        ecart_quantite,
+        ecart_valeur,
+        taux_ecart: parseFloat(taux_ecart.toFixed(2)),
+        est_coherent,
+        niveau_alerte,
+        recommandation: this.getRecommandation(niveau_alerte, ecart_quantite, ecart_valeur),
+      },
+    };
   }
-
-  // ✅ Utiliser les données du résultat de recensement
-  const ecart_quantite = reddition.resultatRecensement.ecart_trouve;
-  const ecart_valeur = reddition.resultatRecensement.valeur_ecart;
-  const taux_ecart = reddition.resultatRecensement.quantite_theorique > 0
-    ? (Math.abs(ecart_quantite) / reddition.resultatRecensement.quantite_theorique) * 100
-    : 0;
-
-  const est_coherent = Math.abs(ecart_quantite) === 0 && Math.abs(ecart_valeur) < 1;
-  const niveau_alerte = taux_ecart > 10 ? 'CRITIQUE' : taux_ecart > 5 ? 'IMPORTANT' : taux_ecart > 0 ? 'MINEUR' : 'OK';
-
-  return {
-    id_reddition: reddition.id_reddition,
-    date_creation: reddition.date_creation,
-    annee_validation: reddition.annee_validation,
-    statut: reddition.statut,
-    date_validation: reddition.date_validation,
-    motif_rejet: reddition.motif_rejet,
-    materiel: {
-      designation: reddition.resultatRecensement.inventaire.materiel?.designation,
-      type: reddition.resultatRecensement.inventaire.materiel?.typeMateriel?.designation,
-    },
-    grand_livre: {
-      id: reddition.grandLivre.id_grand_livre,
-      date_enregistrement: reddition.grandLivre.date_enregistrement,
-      quantite_restante: reddition.grandLivre.quantite_restante,
-      valeur_restante: reddition.grandLivre.valeur_restante,
-      cump: reddition.grandLivre.cump,
-    },
-    resultat_recensement: {
-      id: reddition.resultatRecensement.id,
-      quantite_theorique: reddition.resultatRecensement.quantite_theorique,
-      quantite_physique: reddition.resultatRecensement.quantite_physique,
-      ecart_trouve: reddition.resultatRecensement.ecart_trouve,
-      valeur_systeme: reddition.resultatRecensement.valeur_systeme,
-      pu_systeme: reddition.resultatRecensement.pu_systeme,
-    },
-    analyse: {
-      ecart_quantite,
-      ecart_valeur,
-      taux_ecart: parseFloat(taux_ecart.toFixed(2)),
-      est_coherent,
-      niveau_alerte,
-      recommandation: this.getRecommandation(niveau_alerte, ecart_quantite, ecart_valeur),
-    },
-  };
-}
-
 
   private getRecommandation(niveau: string, ecart_qte: number, ecart_val: number): string {
     if (niveau === 'OK') {
-      return ' Les données sont cohérentes. Validation recommandée.';
+      return '✅ Les données sont cohérentes. Validation recommandée.';
     }
     if (niveau === 'MINEUR') {
-      return ' Écart mineur détecté. Vérifier avant validation.';
+      return '⚠️ Écart mineur détecté. Vérifier avant validation.';
     }
     if (niveau === 'IMPORTANT') {
-      return ' Écart important. Investigation nécessaire avant validation.';
+      return '🔶 Écart important. Investigation nécessaire avant validation.';
     }
-    return ' ÉCART CRITIQUE ! Ne PAS valider sans investigation approfondie.';
+    return '🚨 ÉCART CRITIQUE ! Ne PAS valider sans investigation approfondie.';
   }
 }
